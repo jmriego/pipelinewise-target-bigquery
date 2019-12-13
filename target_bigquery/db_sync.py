@@ -40,8 +40,8 @@ def validate_config(config):
 
 def column_type(schema_property):
     property_type = schema_property['type']
-    column_type = 'character varying'
-    # TODO: Add the STRUCT type
+    property_format = schema_property.get('format', None)
+    # TODO: Add the STRUCT/RECORD type
     if 'object' in property_type or 'array' in property_type:
         column_type = 'struct'
 
@@ -50,7 +50,7 @@ def column_type(schema_property):
     # TODO: Detect if timezone postfix exists in the JSON and find if TIMESTAMP WITHOUT TIME ZONE or
     # TIMESTAMP WITH TIME ZONE is the better column type
     elif property_format == 'date-time':
-        column_type = 'datetime'
+        column_type = 'timestamp'
     elif property_format == 'time':
         column_type = 'time'
     elif 'number' in property_type:
@@ -60,13 +60,15 @@ def column_type(schema_property):
     elif 'integer' in property_type:
         column_type = 'int64'
     elif 'boolean' in property_type:
-        column_type = 'boolean'
+        column_type = 'bool'
+    else:
+        column_type = 'string'
 
     return column_type
 
 
 def safe_column_name(name):
-    return '"{}"'.format(name).lower()
+    return '`{}`'.format(name).lower()
 
 
 def column_clause(name, schema_property):
@@ -111,7 +113,7 @@ class DbSync:
                                     The stream_schema_message holds the destination schema
                                     name and the JSON schema that will be used to
                                     validate every RECORDS messages that comes from the stream.
-                                    Schema validation happening before creating CSV and before
+                                    Schema validation happening before creating JSON and before
                                     uploading data into BigQuery.
 
                                     If stream_schema_message is not defined that we can use
@@ -199,30 +201,50 @@ class DbSync:
             if config_schema_mapping and stream_schema_name in config_schema_mapping:
                 self.grantees = config_schema_mapping[stream_schema_name].get('target_schema_select_permissions', self.grantees)
 
-            self.flatten_schema = stream_schema_message['schema']
+            self.schema = stream_schema_message['schema']['properties']
 
 
     def open_connection(self):
         project_id = self.connection_config['project_id']
         return bigquery.Client(project=project_id)
 
-    def query(self, query, params=None):
+    def query(self, query, params=[]):
+        def to_query_parameter(value):
+            if isinstance(value, int):
+                value_type = "INT64"
+            elif isinstance(value, float):
+                value_type = "NUMERIC"
+            elif isinstance(value, float):
+                value_type = "FLOAT64"
+            elif isinstance(value, bool):
+                value_type = "BOOL"
+            else:
+                value_type = "STRING"
+            return bigquery.ScalarQueryParameter(None, value_type, value)
+
+        job_config = bigquery.QueryJobConfig()
+        query_params = [to_query_parameter(p) for p in params]
+        job_config.query_parameters = query_params
+
+        client = self.open_connection()
         logger.info("TARGET_BIGQUERY - Running query: {}".format(query))
-        with self.open_connection() as client:
-           return client.query(query) 
+        query_job = client.query(query, job_config=job_config)
+        query_job.result()
+
+        return query_job
 
     def table_name(self, stream_name, is_temporary=False, without_schema=False):
         stream_dict = stream_name_to_dict(stream_name)
         table_name = stream_dict['table_name']
-        pg_table_name = table_name.replace('.', '_').replace('-', '_').lower()
+        bq_table_name = table_name.replace('.', '_').replace('-', '_').lower()
 
         if is_temporary:
-            return 'tmp_{}'.format(str(uuid.uuid4()).replace('-', '_'))
+            bq_table_name = 'tmp_{}'.format(str(uuid.uuid4()).replace('-', '_'))
 
         if without_schema:
-            return '{}'.format(pg_table_name)
-
-        return '{}.{}'.format(self.schema_name, pg_table_name)
+            return '{}'.format(bq_table_name)
+        else:
+            return '{}.{}'.format(self.schema_name, bq_table_name)
 
     def record_primary_key_string(self, record):
         if len(self.stream_schema_message['key_properties']) == 0:
@@ -237,69 +259,87 @@ class DbSync:
     def record_to_json_line(self, record):
         return json.dumps(record, ensure_ascii=False)
 
-    def load_csv(self, file, count):
+    def load_json(self, file, count):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         logger.info("Loading {} rows into '{}'".format(count, self.table_name(stream, False)))
 
-        with self.open_connection() as connection:
-            with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True)
-                cur.execute(self.create_table_query(table_name=temp_table, is_temporary=True))
+        client = self.open_connection()
+        # TODO: make temp table creation and DML atomic with merge
+        temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
+        query = self.create_table_query(table_name='{}.{}'.format(self.schema_name, temp_table), is_temporary=False) #TODO change to temp
+        self.query(query)
 
-                copy_sql = "COPY {} ({}) FROM STDIN WITH (FORMAT CSV, ESCAPE '\\')".format(
-                    temp_table,
-                    ', '.join(self.column_names())
-                )
-                logger.info(copy_sql)
-                cur.copy_expert(
-                    copy_sql,
-                    file
-                )
-                if len(self.stream_schema_message['key_properties']) > 0:
-                    cur.execute(self.update_from_temp_table(temp_table))
-                    logger.info(cur.statusmessage)
-                cur.execute(self.insert_from_temp_table(temp_table))
-                logger.info(cur.statusmessage)
+        logger.info("INSERTING INTO {} ({})".format(
+            temp_table,
+            ', '.join(self.column_names())
+        ))
 
-    def insert_from_temp_table(self, temp_table):
+        dataset_id = self.connection_config.get('dataset_id').strip()
+        dataset_ref = client.dataset(dataset_id)
+        table_ref = dataset_ref.table(temp_table)
+        job_config = bigquery.LoadJobConfig()
+        job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
+        file_fields = [SchemaField(name, column_type(schema)) for name, schema in self.schema.items()]
+        job = client.load_table_from_file(file, table_ref, job_config=job_config)
+        # job.schema = file_fields
+        job.result()
+
+        if len(self.stream_schema_message['key_properties']) > 0:
+            query = self.update_from_temp_table(self.schema_name, temp_table)
+        else:
+            query = self.insert_from_temp_table(self.schema_name, temp_table)
+        results = self.query(query)
+        logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))
+
+
+    def insert_from_temp_table(self, temp_schema, temp_table):
         stream_schema_message = self.stream_schema_message
         columns = self.column_names()
         table = self.table_name(stream_schema_message['stream'])
 
         if len(stream_schema_message['key_properties']) == 0:
             return """INSERT INTO {} ({})
-                    (SELECT s.* FROM {} s)
+                    (SELECT s.* FROM {}.{} s)
                     """.format(
                 table,
                 ', '.join(columns),
+                temp_schema,
                 temp_table
             )
 
         return """INSERT INTO {} ({})
-        (SELECT s.* FROM {} s LEFT OUTER JOIN {} t ON {} WHERE {})
+        (SELECT s.* FROM {}.{} s LEFT OUTER JOIN {} t ON {} WHERE {})
         """.format(
             table,
             ', '.join(columns),
+            temp_schema,
             temp_table,
             table,
             self.primary_key_condition('t'),
             self.primary_key_null_condition('t')
         )
 
-    def update_from_temp_table(self, temp_table):
+    def update_from_temp_table(self, temp_schema, temp_table):
         stream_schema_message = self.stream_schema_message
         columns = self.column_names()
         table = self.table_name(stream_schema_message['stream'])
+        table_without_schema = self.table_name(stream_schema_message['stream'], without_schema=True)
 
-        return """UPDATE {} SET {} FROM {} s
-        WHERE {}
+        return """MERGE {table}
+        USING {temp_schema}.{temp_table} s
+        ON {primary_key_condition}
+        WHEN MATCHED THEN
+            UPDATE SET {set_values}
+        WHEN NOT MATCHED THEN
+            INSERT ({cols}) VALUES ({cols})
         """.format(
-            table,
-            ', '.join(['{}=s.{}'.format(c, c) for c in columns]),
-            temp_table,
-            self.primary_key_condition(table)
-        )
+            table=table,
+            temp_schema=temp_schema,
+            temp_table=temp_table,
+            primary_key_condition=self.primary_key_condition(table_without_schema),
+            set_values=', '.join(['{}=s.{}'.format(c, c) for c in columns]),
+            cols=', '.join(c for c in columns))
 
     def primary_key_condition(self, right_table):
         stream_schema_message = self.stream_schema_message
@@ -324,16 +364,13 @@ class DbSync:
             for (name, schema) in self.schema.items()
         ]
 
-        primary_key = ["PRIMARY KEY ({})".format(', '.join(primary_column_names(stream_schema_message)))] \
-            if len(stream_schema_message['key_properties']) else []
-
         if not table_name:
             gen_table_name = self.table_name(stream_schema_message['stream'], is_temporary=is_temporary)
 
         return 'CREATE {}TABLE IF NOT EXISTS {} ({})'.format(
             'TEMP ' if is_temporary else '',
             table_name if table_name else gen_table_name,
-            ', '.join(columns + primary_key)
+            ', '.join(columns)
         )
 
     def grant_usage_on_schema(self, schema_name, grantee):
@@ -370,27 +407,27 @@ class DbSync:
         # Query realtime if not pre-collected
         else:
             schema_rows = self.query(
-                'SELECT LOWER(schema_name) schema_name FROM information_schema.schemata WHERE LOWER(schema_name) = %s',
+                'SELECT LOWER(schema_name) schema_name FROM INFORMATION_SCHEMA.SCHEMATA WHERE LOWER(schema_name) = ?',
                 (schema_name.lower(),)
             )
 
-        if len(schema_rows) == 0:
-            query = "CREATE SCHEMA IF NOT EXISTS {}".format(schema_name)
-            logger.info("Schema '{}' does not exist. Creating... {}".format(schema_name, query))
-            self.query(query)
+        if schema_rows.result().total_rows == 0:
+            logger.info("Schema '{}' does not exist. Creating...".format(schema_name))
+            client = self.open_connection()
+            dataset = client.create_dataset(schema_name)
 
             self.grant_privilege(schema_name, self.grantees, self.grant_usage_on_schema)
 
     def get_tables(self):
         return self.query(
-            'SELECT table_name FROM information_schema.tables WHERE table_schema = %s',
-            (self.schema_name,)
+            'SELECT table_name FROM {schema}.INFORMATION_SCHEMA.TABLES'
+            .format(schema=self.schema_name)
         )
 
     def get_table_columns(self, table_name):
         return self.query("""SELECT column_name, data_type
-      FROM {schema}.information_schema.columns
-      WHERE lower(table_name) = '{}'""").format(self.schema_name.lower(), table_name.lower())
+      FROM {}.INFORMATION_SCHEMA.COLUMNS
+      WHERE lower(table_name) = '{}'""".format(self.schema_name.lower(), table_name.lower()))
 
     def update_columns(self):
         stream_schema_message = self.stream_schema_message

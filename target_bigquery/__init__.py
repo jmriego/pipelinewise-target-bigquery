@@ -170,7 +170,7 @@ def persist_lines(config, lines):
             stream_to_sync[stream].create_schema_if_not_exists()
             stream_to_sync[stream].sync_table()
             row_count[stream] = 0
-            csv_files_to_load[stream] = NamedTemporaryFile(mode='w+b')
+            json_files_to_load[stream] = NamedTemporaryFile(mode='w+b')
         elif t == 'ACTIVATE_VERSION':
             logger.debug('ACTIVATE_VERSION message')
         else:
@@ -178,16 +178,26 @@ def persist_lines(config, lines):
                             .format(o['type'], o))
 
 
+    # TODO: make it parallel
     # Single-host, thread-based parallelism
-    with parallel_backend('threading', n_jobs=-1):
-        Parallel()(delayed(load_stream_batch)(
-            stream=stream,
-            records_to_load=records_to_load[stream],
-            row_count=row_count[stream],
-            db_sync=stream_to_sync[stream],
-            delete_rows=config.get('hard_delete')
-        ) for (stream) in records_to_load.keys())
+    # with parallel_backend('threading', n_jobs=-1):
+    #     Parallel()(delayed(load_stream_batch)(
+    #         stream=stream,
+    #         records_to_load=records_to_load[stream],
+    #         row_count=row_count[stream],
+    #         db_sync=stream_to_sync[stream],
+    #         delete_rows=config.get('hard_delete')
+    #     ) for (stream) in records_to_load.keys())
+    for (stream) in records_to_load.keys():
+        load_stream_batch(
+                stream=stream,
+                records_to_load=records_to_load[stream],
+                row_count=row_count[stream],
+                db_sync=stream_to_sync[stream],
+                delete_rows=config.get('hard_delete')
+                )
 
+    # TODO: make state print parallel
     return state
 
 
@@ -202,18 +212,18 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
 
 
 def flush_records(stream, records_to_load, row_count, db_sync):
-    csv_fd, csv_file = tempfile.mkstemp()
-    with open(csv_fd, 'w+b') as f:
+    json_fd, json_file = tempfile.mkstemp()
+    with open(json_fd, 'w+b') as f:
         for record in records_to_load.values():
-            csv_line = db_sync.record_to_json_line(record)
-            f.write(bytes(csv_line + '\n', 'UTF-8'))
+            json_line = db_sync.record_to_json_line(record)
+            f.write(bytes(json_line + '\n', 'UTF-8'))
 
         # Seek to the beginning of the file and load
         f.seek(0)
-        db_sync.load_csv(f, row_count)
+        db_sync.load_json(f, row_count)
 
     # Delete temp file
-    os.remove(csv_file)
+    os.remove(json_file)
 
 
 def main():
