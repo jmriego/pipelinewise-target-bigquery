@@ -267,7 +267,7 @@ class DbSync:
         client = self.open_connection()
         # TODO: make temp table creation and DML atomic with merge
         temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
-        query = self.create_table_query(table_name='{}.{}'.format(self.schema_name, temp_table), is_temporary=False) #TODO change to temp
+        query = self.create_table_query(table_name=temp_table, is_temporary=True)
         self.query(query)
 
         logger.info("INSERTING INTO {} ({})".format(
@@ -286,16 +286,17 @@ class DbSync:
         job.result()
 
         if len(self.stream_schema_message['key_properties']) > 0:
-            query = self.update_from_temp_table(self.schema_name, temp_table)
+            query = self.update_from_temp_table(temp_table)
         else:
-            query = self.insert_from_temp_table(self.schema_name, temp_table)
+            query = self.insert_from_temp_table(temp_table)
         results = self.query(query)
         logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))
 
 
-    def insert_from_temp_table(self, temp_schema, temp_table):
+    def insert_from_temp_table(self, temp_table):
         stream_schema_message = self.stream_schema_message
         columns = self.column_names()
+        temp_schema = self.connection_config('temp_schema', self.schema_name)
         table = self.table_name(stream_schema_message['stream'])
 
         if len(stream_schema_message['key_properties']) == 0:
@@ -320,11 +321,12 @@ class DbSync:
             self.primary_key_null_condition('t')
         )
 
-    def update_from_temp_table(self, temp_schema, temp_table):
+    def update_from_temp_table(self, temp_table):
         stream_schema_message = self.stream_schema_message
         columns = self.column_names()
         table = self.table_name(stream_schema_message['stream'])
         table_without_schema = self.table_name(stream_schema_message['stream'], without_schema=True)
+        temp_schema = self.connection_config('temp_schema', self.schema_name)
 
         return """MERGE {table}
         USING {temp_schema}.{temp_table} s
