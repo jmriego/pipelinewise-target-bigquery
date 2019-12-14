@@ -1,3 +1,4 @@
 singer-python==5.1.1
 google-cloud-bigquery==1.23.0
 joblib==0.13.2
+inflection==0.3.1
