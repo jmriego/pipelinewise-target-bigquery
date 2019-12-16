@@ -52,30 +52,25 @@ Running the the target connector requires a `config.json` file. An example with 
 
    ```json
    {
-     "host": "localhost",
-     "port": 5432,
-     "user": "my_user",
-     "password": "secret",
-     "dbname": "my_db_name",
-     "default_target_schema": "my_target_schema"
+     "dataset_id": "source",
+     "project_id": "mygbqproject"
    }
    ```
 
 Full list of options in `config.json`:
 
-| Property                            | Type    | Required?  | Description                                                   |
-|-------------------------------------|---------|------------|---------------------------------------------------------------|
-| host                                | String  | Yes        | BigQuery host                                                 |
-| port                                | Integer | Yes        | BigQuery port                                                 |
-| user                                | String  | Yes        | BigQuery user                                                 |
-| password                            | String  | Yes        | BigQuery password                                             |
-| dbname                              | String  | Yes        | BigQuery database name                                        |
-| batch_size                          | Integer |            | (Default: 100000) Maximum number of rows in each batch. At the end of each batch, the rows in the batch are loaded into BigQuery. |
-| default_target_schema               | String  |            | Name of the schema where the tables will be created. If `schema_mapping` is not defined then every stream sent by the tap is loaded into this schema.    |
-| default_target_schema_select_permission | String  |            | Grant USAGE privilege on newly created schemas and grant SELECT privilege on newly created 
-| schema_mapping                      | Object  |            | Useful if you want to load multiple streams from one tap to multiple BigQuery schemas.<br><br>If the tap sends the `stream_id` in `<schema_name>-<table_name>` format then this option overwrites the `default_target_schema` value. Note, that using `schema_mapping` you can overwrite the `default_target_schema_select_permission` value to grant SELECT permissions to different groups per schemas or optionally you can create indices automatically for the replicated tables.<br><br> **Note**: This is an experimental feature and recommended to use via PipelineWise YAML files that will generate the object mapping in the right JSON format. For further info check a [PipelineWise YAML Example](https://transferwise.github.io/pipelinewise/connectors/taps/mysql.html#configuring-what-to-replicate). |
-| add_metadata_columns                | Boolean |            | (Default: False) Metadata columns add extra row level information about data ingestions, (i.e. when was the row read in source, when was inserted or deleted in bigquery etc.) Metadata columns are creating automatically by adding extra columns to the tables with a column prefix `_SDC_`. The column names are following the stitch naming conventions documented at https://www.stitchdata.com/docs/data-structure/integration-schemas#sdc-columns. Enabling metadata columns will flag the deleted rows by setting the `_SDC_DELETED_AT` metadata column. Without the `add_metadata_columns` option the deleted rows from singer taps will not be recongisable in BigQuery. |
-| hard_delete                         | Boolean |            | (Default: False) When `hard_delete` option is true then DELETE SQL commands will be performed in BigQuery to delete rows in tables. It's achieved by continuously checking the  `_SDC_DELETED_AT` metadata column sent by the singer tap. Due to deleting rows requires metadata columns, `hard_delete` option automatically enables the `add_metadata_columns` option as well. |
+| Property                                | Type    | Required?  | Description                                                   |
+|-------------------------------------    |---------|------------|---------------------------------------------------------------|
+| dataset_id                              | String  | Yes        | BigQuery dataset                                              |
+| project_id                              | String  | Yes        | BigQuery project                                              |
+| temp_schema                             | String  |            | Name of the schema where the temporary tables will be created. Will default to the same schema as the target tables |
+| default_target_schema                   | String  |            | Name of the schema where the tables will be created. If `schema_mapping` is not defined then every stream sent by the tap is loaded into this schema. |
+| schema_mapping                          | Object  |            | Useful if you want to load multiple streams from one tap to multiple BigQuery schemas.<br><br>If the tap sends the `stream_id` in `<schema_name>-<table_name>` format then this option overwrites the `default_target_schema` value. Note, that using `schema_mapping` you can overwrite the `default_target_schema_select_permission` value to grant SELECT permissions to different groups per schemas or optionally you can create indices automatically for the replicated tables.<br><br> **Note**: This is an experimental feature and recommended to use via PipelineWise YAML files that will generate the object mapping in the right JSON format. For further info check a [PipelineWise YAML Example](https://transferwise.github.io/pipelinewise/connectors/taps/mysql.html#configuring-what-to-replicate). |
+| default_target_schema_select_permission | String  |            | Grant USAGE privilege on newly created schemas and grant SELECT privilege on newly created |
+| data_flattening_max_level               | Integer |            | (Default: 0) Object type RECORD items from taps can be loaded into VARIANT columns as JSON (default) or we can flatten the schema by creating columns automatically.<br><br>When value is 0 (default) then flattening functionality is turned off. |
+| batch_size                              | Integer |            | (Default: 100000) Maximum number of rows in each batch. At the end of each batch, the rows in the batch are loaded into BigQuery. |
+| add_metadata_columns                    | Boolean |            | (Default: False) Metadata columns add extra row level information about data ingestions, (i.e. when was the row read in source, when was inserted or deleted in bigquery etc.) Metadata columns are creating automatically by adding extra columns to the tables with a column prefix `_SDC_`. The column names are following the stitch naming conventions documented at https://www.stitchdata.com/docs/data-structure/integration-schemas#sdc-columns. Enabling metadata columns will flag the deleted rows by setting the `_SDC_DELETED_AT` metadata column. Without the `add_metadata_columns` option the deleted rows from singer taps will not be recongisable in BigQuery. |
+| hard_delete                             | Boolean |            | (Default: False) When `hard_delete` option is true then DELETE SQL commands will be performed in BigQuery to delete rows in tables. It's achieved by continuously checking the  `_SDC_DELETED_AT` metadata column sent by the singer tap. Due to deleting rows requires metadata columns, `hard_delete` option automatically enables the `add_metadata_columns` option as well. |
 
 
 ### To run tests:
