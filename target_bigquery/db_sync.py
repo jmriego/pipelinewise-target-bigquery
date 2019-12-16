@@ -16,6 +16,7 @@ from google.api_core import exceptions
 
 logger = singer.get_logger()
 
+# TODO: is temp_schema going to be used
 
 def validate_config(config):
     errors = []
@@ -250,7 +251,6 @@ class DbSync:
         project_id = self.connection_config['project_id']
         return bigquery.Client(project=project_id)
 
-    # TODO: add transactions as in snowflake target
     def query(self, query, params=[]):
         def to_query_parameter(value):
             if isinstance(value, int):
