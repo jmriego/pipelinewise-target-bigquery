@@ -42,31 +42,34 @@ def validate_config(config):
 def column_type(schema_property):
     property_type = schema_property['type']
     property_format = schema_property.get('format', None)
-    # TODO: Add the STRUCT/RECORD type
-    if 'object' in property_type or 'array' in property_type:
-        column_type = 'struct'
+    if 'array' in property_type:
+        items_type = column_type(schema_property['items'])
+        result_type = 'array<{}>'.format(items_type)
+
+    # TODO: Add the STRUCT/RECORD types
+    elif 'object' in property_type:
+        result_type = 'record'
 
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
-    # TODO: Detect if timezone postfix exists in the JSON and find if TIMESTAMP WITHOUT TIME ZONE or
-    # TIMESTAMP WITH TIME ZONE is the better column type
+    # TODO: Detect if timezone postfix exists in the JSON and find if DATETIME or
+    # TIMESTAMP which includes time zone is the better column type
     elif property_format == 'date-time':
-        column_type = 'timestamp'
+        result_type = 'timestamp'
     elif property_format == 'time':
-        column_type = 'time'
+        result_type = 'time'
     elif 'number' in property_type:
-        column_type = 'numeric'
+        result_type = 'numeric'
     elif 'integer' in property_type and 'string' in property_type:
-        column_type = 'string'
+        result_type = 'string'
     elif 'integer' in property_type:
-        column_type = 'int64'
+        result_type = 'int64'
     elif 'boolean' in property_type:
-        column_type = 'bool'
+        result_type = 'bool'
     else:
-        column_type = 'string'
+        result_type = 'string'
 
-    return column_type
-
+    return result_type
 
 def safe_column_name(name):
     return '`{}`'.format(name).lower()
@@ -332,6 +335,7 @@ class DbSync:
             ', '.join(self.column_names())
         ))
 
+        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
         dataset_id = self.connection_config.get('dataset_id').strip()
         dataset_ref = client.dataset(dataset_id)
         table_ref = dataset_ref.table(temp_table)
