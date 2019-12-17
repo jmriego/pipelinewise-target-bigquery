@@ -46,9 +46,10 @@ def column_type(schema_property):
         items_type = column_type(schema_property['items'])
         result_type = 'array<{}>'.format(items_type)
 
-    # TODO: Add the STRUCT/RECORD types
     elif 'object' in property_type:
-        result_type = 'record'
+        items_types = {col: column_type(schema) for col, schema in schema_property['properties'].items()}
+        items_types_clauses = ['{} {}'.format(col, t) for col, t in items_types.items()]
+        result_type = 'struct<{}>'.format(', '.join(items_types_clauses))
 
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
@@ -309,6 +310,7 @@ class DbSync:
             raise exc
         return ','.join(key_props)
 
+    # TODO: CSV in BigQuery does not support nested or repeated data. Load string cols instead or use JSON to load?
     def record_to_csv_line(self, record):
         flatten = flatten_record(record, max_level=self.data_flattening_max_level)
         return ','.join(
