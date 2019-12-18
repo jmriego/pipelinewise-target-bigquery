@@ -23,6 +23,13 @@ setup(name="pipelinewise-target-bigquery",
           'inflection==0.3.1',
           'joblib==0.13.2'
       ],
+      extras_require={
+          "test": [
+              "nose==1.3.7",
+              "mock==3.0.5",
+              "pylint==2.4.2"
+          ]
+      },
       entry_points="""
           [console_scripts]
           target-bigquery=target_bigquery:main

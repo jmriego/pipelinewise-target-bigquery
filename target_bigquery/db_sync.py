@@ -21,7 +21,6 @@ logger = singer.get_logger()
 def validate_config(config):
     errors = []
     required_config_keys = [
-        'dataset_id',
         'project_id'
     ]
 
@@ -42,14 +41,8 @@ def validate_config(config):
 def column_type(schema_property):
     property_type = schema_property['type']
     property_format = schema_property.get('format', None)
-    if 'array' in property_type:
-        items_type = column_type(schema_property['items'])
-        result_type = 'array<{}>'.format(items_type)
-
-    elif 'object' in property_type:
-        items_types = {col: column_type(schema) for col, schema in schema_property['properties'].items()}
-        items_types_clauses = ['{} {}'.format(col, t) for col, t in items_types.items()]
-        result_type = 'struct<{}>'.format(', '.join(items_types_clauses))
+    if 'array' in property_type or 'object' in property_type:
+        result_type = 'string'
 
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
@@ -72,8 +65,11 @@ def column_type(schema_property):
 
     return result_type
 
-def safe_column_name(name):
-    return '`{}`'.format(name).lower()
+def safe_column_name(name, quotes=True):
+    if quotes:
+        return '`{}`'.format(name).lower()
+    else:
+        return '{}'.format(name).lower()
 
 
 def column_clause(name, schema_property):
@@ -337,8 +333,7 @@ class DbSync:
             ', '.join(self.column_names())
         ))
 
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
-        dataset_id = self.connection_config.get('dataset_id').strip()
+        dataset_id = self.connection_config.get('temp_schema', self.schema_name).strip()
         dataset_ref = client.dataset(dataset_id)
         table_ref = dataset_ref.table(temp_table)
         job_config = bigquery.LoadJobConfig()
@@ -502,30 +497,31 @@ class DbSync:
         columns_dict = {column['column_name'].lower(): column for column in columns}
 
         columns_to_add = [
-            column_clause(
-                name,
-                properties_schema
+            (
+                safe_column_name(name, quotes=False),
+                column_type(properties_schema)
             )
             for (name, properties_schema) in self.flatten_schema.items()
             if name.lower() not in columns_dict
         ]
 
-        for column in columns_to_add:
-            self.add_column(column, stream)
+        for column, col_type in columns_to_add:
+            self.add_column(column, col_type, stream)
 
         columns_to_replace = [
-            (safe_column_name(name), column_clause(
-                name,
-                properties_schema
-            ))
+            (
+                safe_column_name(name, quotes=False),
+                column_type(properties_schema)
+            )
             for (name, properties_schema) in self.flatten_schema.items()
             if name.lower() in columns_dict and
                columns_dict[name.lower()]['data_type'].lower() != column_type(properties_schema).lower()
         ]
 
-        for (column_name, column) in columns_to_replace:
-            self.version_column(column_name, stream)
-            self.add_column(column, stream)
+        if columns_to_replace:
+            self.version_column([c for c, clause in columns_to_replace], stream)
+            for column, col_type in columns_to_replace:
+                self.add_column(column, col_type, stream)
 
 
     def drop_column(self, column_name, stream):
@@ -533,15 +529,49 @@ class DbSync:
         logger.info('Dropping column: {}'.format(drop_column))
         self.query(drop_column)
 
-    def version_column(self, column_name, stream):
-        version_column = "ALTER TABLE {} RENAME COLUMN {} TO \"{}_{}\"".format(self.table_name(stream, False), column_name, column_name.replace("\"",""), time.strftime("%Y%m%d_%H%M"))
-        logger.info('Dropping column: {}'.format(version_column))
-        self.query(version_column)
+    def version_column(self, column_names, stream):
+        table_name = self.table_name(stream, False)
+        renamed_columns = [
+            '`{}` AS `{}_{}`'.format(
+                c,
+                c.replace("`", ""),
+                time.strftime("%Y%m%d_%H%M"))
+            for c in column_names]
 
-    def add_column(self, column, stream):
-        add_column = "ALTER TABLE {} ADD COLUMN {}".format(self.table_name(stream), column)
-        logger.info('Adding column: {}'.format(add_column))
-        self.query(add_column)
+        version_column = """SELECT *
+        EXCEPT({column_names}),
+        {renamed_columns}
+        FROM {table_name}""".format(
+            table_name=table_name,
+            column_names = ', '.join(column_names),
+            renamed_columns = ', '.join(renamed_columns))
+
+        logger.info('Versioning column: {}'.format(version_column))
+
+        job_config = bigquery.QueryJobConfig()
+        project_id = self.connection_config['project_id']
+        job_config.destination = '{}.{}'.format(project_id, table_name)
+        job_config.write_disposition = 'WRITE_TRUNCATE'
+        client = self.open_connection()
+        query_job = client.query(version_column, job_config=job_config)
+        query_job.result()
+
+    def add_column(self, column, col_type, stream):
+        client = self.open_connection()
+        dataset_ref = client.dataset(self.schema_name)
+
+        project_id = self.connection_config['project_id']
+        dataset_id = self.schema_name
+        table_name = self.table_name(stream, without_schema=True)
+
+        table_ref = client.dataset(dataset_id).table(table_name)
+        table = client.get_table(table_ref)  # API request
+
+        schema = table.schema[:]
+        schema.append(bigquery.SchemaField(column, col_type)) 
+        table.schema = schema
+        logger.info('Adding column: {}'.format(column))
+        table = client.update_table(table, ['schema'])  # API request
 
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
