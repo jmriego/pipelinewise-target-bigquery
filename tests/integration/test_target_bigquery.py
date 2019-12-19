@@ -116,12 +116,12 @@ class TestIntegration(unittest.TestCase):
         expected_table_two = []
         if not should_hard_deleted_rows:
             expected_table_two = [
-                {'c_int': 1, 'c_pk': 1, 'c_varchar': '1', 'c_date': datetime.datetime(2019, 2, 1, 15, 12, 45)},
-                {'c_int': 2, 'c_pk': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 10, 2, 0, 0)}
+                {'c_int': 1, 'c_pk': 1, 'c_varchar': '1', 'c_date': datetime.datetime(2019, 2, 1, 15, 12, 45, tzinfo=timezone.utc)},
+                {'c_int': 2, 'c_pk': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 10, 2, 0, 0, tzinfo=timezone.utc)}
             ]
         else:
             expected_table_two = [
-                {'c_int': 2, 'c_pk': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 10, 2, 0, 0)}
+                {'c_int': 2, 'c_pk': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 10, 2, 0, 0, tzinfo=timezone.utc)}
             ]
 
         self.assertEqual(
@@ -422,9 +422,8 @@ class TestIntegration(unittest.TestCase):
             flattened_table,
             [{
                 'c_pk': 1,
-                'c_array': '[\n  1,\n  2,\n  3\n]',
+                'c_array': '[1, 2, 3]',
                 'c_object': None,
-                # Cannot map RECORD to SCHEMA. SCHEMA doesn't have properties that requires for flattening
                 'c_object_with_props__key_1': 'value_1',
                 'c_nested_object__nested_prop_1': 'nested_value_1',
                 'c_nested_object__nested_prop_2': 'nested_value_2',
@@ -469,9 +468,9 @@ class TestIntegration(unittest.TestCase):
             table_two,
             [
                 {'c_int': 1, 'c_pk': 1,
-                 'c_varchar': '1', previous_column_name: datetime.datetime(2019, 2, 1, 15, 12, 45).replace(tzinfo=timezone.utc), 'c_date': None},
+                 'c_varchar': '1', previous_column_name: datetime.datetime(2019, 2, 1, 15, 12, 45, tzinfo=timezone.utc), 'c_date': None},
                 {'c_int': 2, 'c_pk': 2, 'c_varchar': '2',
-                 previous_column_name: datetime.datetime(2019, 2, 10, 2).replace(tzinfo=timezone.utc), 'c_date': '2019-02-12 02:00:00'},
+                 previous_column_name: datetime.datetime(2019, 2, 10, 2, tzinfo=timezone.utc), 'c_date': '2019-02-12 02:00:00'},
                 {'c_int': 3, 'c_pk': 3, 'c_varchar': '2', previous_column_name: None, 'c_date': '2019-02-15 02:00:00'}
             ]
         )

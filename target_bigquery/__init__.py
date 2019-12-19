@@ -8,7 +8,10 @@ import sys
 import copy
 import singer
 
-from datetime import datetime
+from fastavro import writer, reader, parse_schema
+
+from datetime import datetime, date
+import time
 from decimal import Decimal
 from tempfile import NamedTemporaryFile, mkstemp
 from typing import Dict
@@ -27,10 +30,12 @@ DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by de
 
 # max timestamp/datetime supported in SF, used to reset all invalid dates that are beyond this value
 MAX_TIMESTAMP = '9999-12-31 23:59:59.999999'
+MAX_TIMESTAMP = int(datetime.strptime(MAX_TIMESTAMP, '%Y-%m-%d %H:%M:%S.%f').strftime("%s"))
 
 # max time supported in SF, used to reset all invalid times that are beyond this value
 MAX_TIME = '23:59:59.999999'
-
+MAX_TIME = datetime.strptime(MAX_TIME,'%H:%M:%S.%f')
+MAX_TIME = (MAX_TIME - datetime.min).total_seconds() * 1000
 
 def float_to_decimal(value):
     """Walk the given data structure and turn all instances of float into double."""
@@ -63,10 +68,16 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     """Populate metadata _sdc columns from incoming record message
     The location of the required attributes are fixed in the stream
     """
+    def datetime_string_to_int(dt):
+        try:
+            return int(datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ').strftime("%s"))
+        except TypeError:
+            return None
+
     extended_record = record_message['record']
-    extended_record['_sdc_extracted_at'] = record_message.get('time_extracted')
-    extended_record['_sdc_batched_at'] = datetime.now().isoformat()
-    extended_record['_sdc_deleted_at'] = record_message.get('record', {}).get('_sdc_deleted_at')
+    extended_record['_sdc_extracted_at'] = datetime_string_to_int(record_message['time_extracted'])
+    extended_record['_sdc_batched_at'] = int(datetime.now().strftime("%s"))
+    extended_record['_sdc_deleted_at'] = datetime_string_to_int(record_message.get('record', {}).get('_sdc_deleted_at'))
 
     return extended_record
 
@@ -105,7 +116,12 @@ def adjust_timestamps_in_record(record: Dict, schema: Dict) -> None:
     # creating this internal function to avoid duplicating code and too many nested blocks.
     def reset_new_value(record: Dict, key: str, format: str):
         try:
-            parser.parse(record[key])
+            dt_value = parser.parse(record[key])
+            # TODO: check formats
+            if format == 'time':
+                record[key] = int(dt_value.strftime("%s"))
+            else:
+                record[key] = int(dt_value.strftime("%s"))
         except ParserError:
             record[key] = MAX_TIMESTAMP if format != 'time' else MAX_TIME
 
@@ -329,15 +345,26 @@ def flush_streams(
     else:
         streams_to_flush = streams.keys()
 
+    # TODO: back to parallel
+    # # Single-host, thread-based parallelism
+    # with parallel_backend('threading', n_jobs=parallelism):
+    #     Parallel()(delayed(load_stream_batch)(
+    #         stream=stream,
+    #         records_to_load=streams[stream],
+    #         row_count=row_count,
+    #         db_sync=stream_to_sync[stream],
+    #         delete_rows=config.get('hard_delete')
+    #     ) for stream in streams_to_flush)
+
     # Single-host, thread-based parallelism
-    with parallel_backend('threading', n_jobs=parallelism):
-        Parallel()(delayed(load_stream_batch)(
+    for stream in streams_to_flush:
+        load_stream_batch(
             stream=stream,
             records_to_load=streams[stream],
             row_count=row_count,
             db_sync=stream_to_sync[stream],
             delete_rows=config.get('hard_delete')
-        ) for stream in streams_to_flush)
+        )
 
     # reset flushed stream records to empty to avoid flushing same records
     for stream in streams_to_flush:
@@ -374,15 +401,16 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
         row_count[stream] = 0
 
 
+# TODO: avro requirements pip
 def flush_records(stream, records_to_load, row_count, db_sync):
+    parsed_schema = parse_schema(db_sync.avro_schema())
     csv_fd, csv_file = mkstemp()
-    with open(csv_fd, 'w+b') as f:
-        for record in records_to_load.values():
-            csv_line = db_sync.record_to_csv_line(record)
-            f.write(bytes(csv_line + '\n', 'UTF-8'))
+    with open(csv_file, 'wb') as out:
+        writer(out, parsed_schema, records_to_load.values())
 
-        # Seek to the beginning of the file and load
-        f.seek(0)
+    # Seek to the beginning of the file and load
+    # f.close()
+    with open(csv_file, 'r+b') as f:
         db_sync.load_csv(f, row_count)
 
     # Delete temp file

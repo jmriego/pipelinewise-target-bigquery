@@ -74,8 +74,10 @@ class TestDBSync(unittest.TestCase):
         self.assertEquals(mapper(json_int), 'int64')
         self.assertEquals(mapper(json_int_or_str), 'string')
         self.assertEquals(mapper(json_bool), 'bool')
-        self.assertEquals(mapper(json_obj), 'record')
-        self.assertEquals(mapper(json_arr), 'record')
+        self.assertEquals(mapper(json_obj), 'string')
+        self.assertEquals(mapper(json_arr), 'string')
+        # TODO: add tests for array with items
+        # TODO: add tests for record with properties
 
     def test_stream_name_to_dict(self):
         """Test identifying catalog, schema and table names from fully qualified stream and table names"""
@@ -227,13 +229,14 @@ class TestDBSync(unittest.TestCase):
                 }}}
 
         # NO FLATTENING - No flattening (default)
+        self.maxDiff = None
         self.assertEquals(flatten_record(nested_record),
                           {
                               "c_pk": 1,
                               "c_varchar": "1",
                               "c_int": 1,
-                              "c_obj": '{"nested_prop1": "value_1", "nested_prop2": "value_2", "nested_prop3": {'
-                                       '"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": "multi_value_2"}}'
+                              "c_obj": {"nested_prop1": "value_1", "nested_prop2": "value_2", "nested_prop3": {
+                                       "multi_nested_prop1": "multi_value_1", "multi_nested_prop2": "multi_value_2"}}
                           })
 
         # NO FLATTENING
@@ -243,8 +246,8 @@ class TestDBSync(unittest.TestCase):
                               "c_pk": 1,
                               "c_varchar": "1",
                               "c_int": 1,
-                              "c_obj": '{"nested_prop1": "value_1", "nested_prop2": "value_2", "nested_prop3": {'
-                                       '"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": "multi_value_2"}}'
+                              "c_obj": {"nested_prop1": "value_1", "nested_prop2": "value_2", "nested_prop3": {
+                                       "multi_nested_prop1": "multi_value_1", "multi_nested_prop2": "multi_value_2"}}
                           })
 
         # SEMI FLATTENING
@@ -256,8 +259,8 @@ class TestDBSync(unittest.TestCase):
                               "c_int": 1,
                               "c_obj__nested_prop1": "value_1",
                               "c_obj__nested_prop2": "value_2",
-                              "c_obj__nested_prop3": '{"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": '
-                                                     '"multi_value_2"}'
+                              "c_obj__nested_prop3": {"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": 
+                                                     "multi_value_2"}
                           })
 
         # FLATTENING

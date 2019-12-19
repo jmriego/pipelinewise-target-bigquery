@@ -41,8 +41,20 @@ def validate_config(config):
 def column_type(schema_property):
     property_type = schema_property['type']
     property_format = schema_property.get('format', None)
-    if 'array' in property_type or 'object' in property_type:
+    if 'array' in property_type:
+        try:
+            items_type = column_type(schema_property['items'])
+        except KeyError:
+            items_type = 'string'
         result_type = 'string'
+
+    elif 'object' in property_type:
+        items_types = {col: column_type(schema) for col, schema in schema_property.get('properties', {}).items()}
+        items_types_clauses = ['{} {}'.format(col, t) for col, t in items_types.items()]
+        if items_types_clauses:
+            result_type = 'struct<{}>'.format(', '.join(items_types_clauses))
+        else:
+            result_type = 'string'
 
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
@@ -64,6 +76,51 @@ def column_type(schema_property):
         result_type = 'string'
 
     return result_type
+
+
+def column_type_avro(name, schema_property):
+    property_type = schema_property['type']
+    property_format = schema_property.get('format', None)
+    result = {"name": name}
+
+    if 'array' in property_type:
+        items_type = column_type_avro(name, schema_property['items'])
+        result_type = 'array'
+        result['items'] = items_type['type']
+    elif 'object' in property_type:
+        items_types = [
+            column_type_avro(col, schema_property)
+            for col, schema_property in schema_property.get('properties', {}).items()]
+
+        if items_types:
+            result_type = {
+                'type': 'record',
+                'name': name + '_properties',
+                'fields': items_types}
+        else:
+            result_type = 'string'
+
+    elif property_format == 'date-time':
+        result_type = 'int'
+        result['logicalType'] = 'timestamp-millis'
+    elif property_format == 'time':
+        result_type = 'int'
+        result['logicalType'] = 'time-millis'
+    elif 'number' in property_type:
+        result_type = 'bytes'
+        result['logicalType'] = 'decimal'
+    elif 'integer' in property_type and 'string' in property_type:
+        result_type = 'string'
+    elif 'integer' in property_type:
+        result_type = 'int'
+    elif 'boolean' in property_type:
+        result_type = 'boolean'
+    else:
+        result_type = 'string'
+
+    result['type'] = ['null', result_type]
+    return result
+
 
 def safe_column_name(name, quotes=True):
     if quotes:
@@ -130,7 +187,7 @@ def flatten_record(d, parent_key=[], sep='__', level=0, max_level=0):
         if isinstance(v, collections.MutableMapping) and level < max_level:
             items.extend(flatten_record(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
         else:
-            items.append((new_key, json.dumps(v) if type(v) is list or type(v) is dict else v))
+            items.append((new_key, v if type(v) is list or type(v) is dict else v))
     return dict(items)
 
 
@@ -142,7 +199,7 @@ def stream_name_to_dict(stream_name, separator='-'):
     schema_name = None
     table_name = stream_name
 
-    # Schema and table name can be derived from stream if it's in <schema_nama>-<table_name> format
+    # Schema and table name can be derived from stream if it's in <schema_name>-<table_name> format
     s = stream_name.split(separator)
     if len(s) == 2:
         schema_name = s[0]
@@ -306,16 +363,29 @@ class DbSync:
             raise exc
         return ','.join(key_props)
 
+    def avro_schema(self):
+        schema = {
+             "type": "record",
+             "namespace": "{}.{}.pipelinewise.avro".format(
+                 self.connection_config['project_id'],
+                 self.schema_name,
+                 ),
+             "name": self.stream_schema_message['stream'],
+             "fields": [column_type_avro(name, c) for name, c in self.flatten_schema.items()]} 
+
+        pattern = r"[^A-Za-z0-9_]"
+        if re.search(pattern, schema['name']):
+            schema["alias"] = schema['name']
+            schema["name"] = re.sub(pattern, "_", schema['name'])
+
+        return schema
+
     # TODO: CSV in BigQuery does not support nested or repeated data. Load string cols instead or use JSON to load?
     def record_to_csv_line(self, record):
         flatten = flatten_record(record, max_level=self.data_flattening_max_level)
-        return ','.join(
-            [
-                json.dumps(flatten[name], ensure_ascii=False) if name in flatten and (flatten[name] == 0 or flatten[name]) else ''
-                for name in self.flatten_schema
-            ]
-        )
-
+        return {
+            name: flatten[name] if name in flatten else ''
+            for name in self.flatten_schema }
 
     def load_csv(self, f, count):
         stream_schema_message = self.stream_schema_message
@@ -325,8 +395,8 @@ class DbSync:
         client = self.open_connection()
         # TODO: make temp table creation and DML atomic with merge
         temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
-        query = self.create_table_query(is_temporary=True)
-        self.query(query)
+        # query = self.create_table_query(is_temporary=True)
+        # self.query(query)
 
         logger.info("INSERTING INTO {} ({})".format(
             temp_table,
@@ -337,11 +407,13 @@ class DbSync:
         dataset_ref = client.dataset(dataset_id)
         table_ref = dataset_ref.table(temp_table)
         job_config = bigquery.LoadJobConfig()
-        job_config.source_format = bigquery.SourceFormat.CSV
-        job_config.schema = [SchemaField(name, column_type(schema)) for name, schema in self.flatten_schema.items()]
+        job_config.source_format = bigquery.SourceFormat.AVRO
+        job_config.use_avro_logical_types = True
+        # job_config.schema = [SchemaField(name, column_type(schema)) for name, schema in self.flatten_schema.items()]
         job_config.write_disposition = 'WRITE_TRUNCATE'
         # job_config.skip_leading_rows = 1
         # job_config.autodetect = True
+        # TODO: handle retries best practices https://cloud.google.com/bigquery/docs/loading-data-local
         job = client.load_table_from_file(f, table_ref, job_config=job_config)
         job.result()
 
@@ -453,7 +525,7 @@ class DbSync:
         table = self.table_name(stream, False)
         query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
         logger.info("Deleting rows from '{}' table... {}".format(table, query))
-        logger.info("DELETE {}".format(len(self.query(query))))
+        logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
     def create_schema_if_not_exists(self, table_columns_cache=None):
         schema_name = self.schema_name

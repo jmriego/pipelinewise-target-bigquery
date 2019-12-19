@@ -74,7 +74,7 @@ class TestTargetBigQuery(unittest.TestCase):
 
         self.assertDictEqual({
             'key1': '1',
-            'key2': '2030-01-22',
+            'key2': 1895270400,
             'key3': '9999-12-31 23:59:59.999999',
             'key4': '23:59:59.999999',
             'key5': 'I\'m good',
