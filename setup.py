@@ -10,8 +10,8 @@ setup(name="pipelinewise-target-bigquery",
       description="Singer.io target for loading data to BigQuery - PipelineWise compatible",
       long_description=long_description,
       long_description_content_type='text/markdown',
-      author="TransferWise",
-      url='https://github.com/transferwise/pipelinewise-target-bigquery',
+      author="jmriego",
+      url='https://github.com/jmriego/pipelinewise-target-bigquery',
       classifiers=[
           'License :: OSI Approved :: Apache Software License',
           'Programming Language :: Python :: 3 :: Only'
@@ -21,7 +21,8 @@ setup(name="pipelinewise-target-bigquery",
           'singer-python==5.1.1',
           'psycopg2==2.8.2',
           'inflection==0.3.1',
-          'joblib==0.13.2'
+          'joblib==0.13.2',
+          'fastavro==0.22.8'
       ],
       extras_require={
           "test": [

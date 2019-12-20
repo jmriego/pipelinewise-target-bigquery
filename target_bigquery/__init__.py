@@ -30,12 +30,12 @@ DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by de
 
 # max timestamp/datetime supported in SF, used to reset all invalid dates that are beyond this value
 MAX_TIMESTAMP = '9999-12-31 23:59:59.999999'
-MAX_TIMESTAMP = int(datetime.strptime(MAX_TIMESTAMP, '%Y-%m-%d %H:%M:%S.%f').strftime("%s"))
+MAX_TIMESTAMP = datetime.strptime(MAX_TIMESTAMP, '%Y-%m-%d %H:%M:%S.%f')
 
 # max time supported in SF, used to reset all invalid times that are beyond this value
 MAX_TIME = '23:59:59.999999'
 MAX_TIME = datetime.strptime(MAX_TIME,'%H:%M:%S.%f')
-MAX_TIME = (MAX_TIME - datetime.min).total_seconds() * 1000
+MAX_TIME = (MAX_TIME - datetime.min)
 
 def float_to_decimal(value):
     """Walk the given data structure and turn all instances of float into double."""
@@ -59,7 +59,8 @@ def add_metadata_columns_to_schema(schema_message):
                                                                             'format': 'date-time'}
     extended_schema_message['schema']['properties']['_sdc_batched_at'] = {'type': ['null', 'string'],
                                                                           'format': 'date-time'}
-    extended_schema_message['schema']['properties']['_sdc_deleted_at'] = {'type': ['null', 'string']}
+    extended_schema_message['schema']['properties']['_sdc_deleted_at'] = {'type': ['null', 'string'],
+                                                                          'format': 'date-time'}
 
     return extended_schema_message
 
@@ -68,16 +69,20 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     """Populate metadata _sdc columns from incoming record message
     The location of the required attributes are fixed in the stream
     """
-    def datetime_string_to_int(dt):
+    def parse_datetime(dt):
         try:
-            return int(datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ').strftime("%s"))
+            # TODO: figure out why we can get _sdc_deleted_at as both datetime and string objects
+            if isinstance(dt, date):
+                return dt
+            else:
+                return datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ')
         except TypeError:
             return None
 
     extended_record = record_message['record']
-    extended_record['_sdc_extracted_at'] = datetime_string_to_int(record_message['time_extracted'])
-    extended_record['_sdc_batched_at'] = int(datetime.now().strftime("%s"))
-    extended_record['_sdc_deleted_at'] = datetime_string_to_int(record_message.get('record', {}).get('_sdc_deleted_at'))
+    extended_record['_sdc_extracted_at'] = parse_datetime(record_message['time_extracted'])
+    extended_record['_sdc_batched_at'] = datetime.now()
+    extended_record['_sdc_deleted_at'] = parse_datetime(record_message.get('record', {}).get('_sdc_deleted_at'))
 
     return extended_record
 
@@ -116,12 +121,10 @@ def adjust_timestamps_in_record(record: Dict, schema: Dict) -> None:
     # creating this internal function to avoid duplicating code and too many nested blocks.
     def reset_new_value(record: Dict, key: str, format: str):
         try:
-            dt_value = parser.parse(record[key])
-            # TODO: check formats
             if format == 'time':
-                record[key] = int(dt_value.strftime("%s"))
+                record[key] = parser.parse(record[key]).time()
             else:
-                record[key] = int(dt_value.strftime("%s"))
+                record[key] = parser.parse(record[key])
         except ParserError:
             record[key] = MAX_TIMESTAMP if format != 'time' else MAX_TIME
 
@@ -345,26 +348,15 @@ def flush_streams(
     else:
         streams_to_flush = streams.keys()
 
-    # TODO: back to parallel
-    # # Single-host, thread-based parallelism
-    # with parallel_backend('threading', n_jobs=parallelism):
-    #     Parallel()(delayed(load_stream_batch)(
-    #         stream=stream,
-    #         records_to_load=streams[stream],
-    #         row_count=row_count,
-    #         db_sync=stream_to_sync[stream],
-    #         delete_rows=config.get('hard_delete')
-    #     ) for stream in streams_to_flush)
-
     # Single-host, thread-based parallelism
-    for stream in streams_to_flush:
-        load_stream_batch(
+    with parallel_backend('threading', n_jobs=parallelism):
+        Parallel()(delayed(load_stream_batch)(
             stream=stream,
             records_to_load=streams[stream],
             row_count=row_count,
             db_sync=stream_to_sync[stream],
             delete_rows=config.get('hard_delete')
-        )
+        ) for stream in streams_to_flush)
 
     # reset flushed stream records to empty to avoid flushing same records
     for stream in streams_to_flush:
@@ -406,12 +398,11 @@ def flush_records(stream, records_to_load, row_count, db_sync):
     parsed_schema = parse_schema(db_sync.avro_schema())
     csv_fd, csv_file = mkstemp()
     with open(csv_file, 'wb') as out:
-        writer(out, parsed_schema, records_to_load.values())
+        writer(out, parsed_schema, db_sync.records_to_avro(records_to_load.values()))
 
     # Seek to the beginning of the file and load
-    # f.close()
     with open(csv_file, 'r+b') as f:
-        db_sync.load_csv(f, row_count)
+        db_sync.load_avro(f, row_count)
 
     # Delete temp file
     os.remove(csv_file)

@@ -16,7 +16,6 @@ from google.api_core import exceptions
 
 logger = singer.get_logger()
 
-# TODO: is temp_schema going to be used
 
 def validate_config(config):
     errors = []
@@ -101,11 +100,13 @@ def column_type_avro(name, schema_property):
             result_type = 'string'
 
     elif property_format == 'date-time':
-        result_type = 'int'
-        result['logicalType'] = 'timestamp-millis'
+        result_type = {
+            'type': 'long',
+            'logicalType': 'timestamp-millis'}
     elif property_format == 'time':
-        result_type = 'int'
-        result['logicalType'] = 'time-millis'
+        result_type = {
+            'type': 'int',
+            'logicalType': 'time-millis'}
     elif 'number' in property_type:
         result_type = 'bytes'
         result['logicalType'] = 'decimal'
@@ -380,14 +381,25 @@ class DbSync:
 
         return schema
 
-    # TODO: CSV in BigQuery does not support nested or repeated data. Load string cols instead or use JSON to load?
-    def record_to_csv_line(self, record):
-        flatten = flatten_record(record, max_level=self.data_flattening_max_level)
-        return {
-            name: flatten[name] if name in flatten else ''
-            for name in self.flatten_schema }
+    # TODO: write tests for the json.dumps lines below and verify nesting
+    # TODO: improve performance
+    def records_to_avro(self, records):
+        for record in records:
+            flatten = flatten_record(record, max_level=self.data_flattening_max_level)
+            result = {}
+            for name, props in self.flatten_schema.items():
+                if name in flatten:
+                    if 'object' in props['type'] and not 'properties' in props:
+                        result[name] = json.dumps(flatten[name])
+                    elif 'array' in props['type'] and not 'items' in props:
+                        result[name] = json.dumps(flatten[name])
+                    else:
+                        result[name] = flatten[name] if name in flatten else ''
+                else:
+                    result[name] = None
+            yield result
 
-    def load_csv(self, f, count):
+    def load_avro(self, f, count):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         logger.info("Loading {} rows into '{}'".format(count, self.table_name(stream, False)))
