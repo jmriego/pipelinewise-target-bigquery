@@ -113,7 +113,7 @@ def column_type_avro(name, schema_property):
     elif 'integer' in property_type and 'string' in property_type:
         result_type = 'string'
     elif 'integer' in property_type:
-        result_type = 'int'
+        result_type = 'long'
     elif 'boolean' in property_type:
         result_type = 'boolean'
     else:
