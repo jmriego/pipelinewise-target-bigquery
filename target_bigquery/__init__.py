@@ -393,7 +393,6 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
         row_count[stream] = 0
 
 
-# TODO: avro requirements pip
 def flush_records(stream, records_to_load, row_count, db_sync):
     parsed_schema = parse_schema(db_sync.avro_schema())
     csv_fd, csv_file = mkstemp()
