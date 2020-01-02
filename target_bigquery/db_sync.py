@@ -46,7 +46,7 @@ def column_type(schema_property):
             items_type = column_type(schema_property['items'])
         except KeyError:
             items_type = 'string'
-        result_type = 'string'
+        result_type = 'array<{}>'.format(items_type)
 
     elif 'object' in property_type:
         items_types = {col: column_type(schema) for col, schema in schema_property.get('properties', {}).items()}
@@ -128,6 +128,7 @@ def column_type_avro(name, schema_property):
 
 
 def safe_column_name(name, quotes=True):
+    name = name.replace('`', '')
     if quotes:
         return '`{}`'.format(name).lower()
     else:
@@ -307,6 +308,7 @@ class DbSync:
 
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
             self.flatten_schema = flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
+            self.renamed_columns = {}
 
 
     def open_connection(self):
@@ -476,25 +478,27 @@ class DbSync:
         table_without_schema = self.table_name(stream_schema_message['stream'], without_schema=True)
         temp_schema = self.connection_config.get('temp_schema', self.schema_name)
 
-        return """MERGE {table}
+        result = """MERGE {table}
         USING {temp_schema}.{temp_table} s
         ON {primary_key_condition}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
         WHEN NOT MATCHED THEN
-            INSERT ({cols}) VALUES ({cols})
+            INSERT ({renamed_cols}) VALUES ({cols})
         """.format(
             table=table,
             temp_schema=temp_schema,
             temp_table=temp_table,
             primary_key_condition=self.primary_key_condition(table_without_schema),
-            set_values=', '.join(['{}=s.{}'.format(c, c) for c in columns]),
-            cols=', '.join(c for c in columns))
+            set_values=', '.join(['{}=s.{}'.format(self.renamed_columns.get(c, c), c) for c in columns]),
+            renamed_cols=', '.join(self.renamed_columns.get(c, c) for c in columns),
+            cols=', '.join(c for c in self.column_names()))
+        return result
 
     def primary_key_condition(self, right_table):
         stream_schema_message = self.stream_schema_message
         names = primary_column_names(stream_schema_message)
-        return ' AND '.join(['s.{} = {}.{}'.format(c, right_table, c) for c in names])
+        return ' AND '.join(['s.{} = {}.{}'.format(self.renamed_columns.get(c, c), right_table, c) for c in names])
 
     def primary_key_null_condition(self, right_table):
         stream_schema_message = self.stream_schema_message
@@ -608,43 +612,47 @@ class DbSync:
                columns_dict[name.lower()]['data_type'].lower() != column_type(properties_schema).lower()
         ]
 
-        if columns_to_replace:
-            self.version_column([c for c, clause in columns_to_replace], stream)
-            for column, col_type in columns_to_replace:
-                self.add_column(column, col_type, stream)
+        for column, col_type in columns_to_replace:
+            self.version_column(column, col_type, stream)
 
+    def version_column(self, column, col_type, stream):
+        col_type_suffixes = {
+            'timestamp': 'ts',
+            'time': 'tm',
+            'numeric': 'num',
+            'string': 'st',
+            'int64': 'int',
+            'bool': 'bo',
+            'array': 'arr',
+            'struct': 'sct'}
 
-    def drop_column(self, column_name, stream):
-        drop_column = "ALTER TABLE {} DROP COLUMN {}".format(self.table_name(stream), column_name)
-        logger.info('Dropping column: {}'.format(drop_column))
-        self.query(drop_column)
+        if col_type.startswith('array'):
+            col_with_type_suffix = '{}__{}{}'.format(column.replace("`", ""), col_type_suffixes['array'], time.strftime("%Y%m%d_%H%M"))
+        elif col_type.startswith('struct'):
+            col_with_type_suffix = '{}__{}{}'.format(column.replace("`", ""), col_type_suffixes['struct'], time.strftime("%Y%m%d_%H%M"))
+        else:
+            col_with_type_suffix = '{}__{}'.format(column.replace("`", ""), col_type_suffixes[col_type])
+        col_with_type_suffix = safe_column_name(col_with_type_suffix)
 
-    def version_column(self, column_names, stream):
-        table_name = self.table_name(stream, False)
-        renamed_columns = [
-            '`{}` AS `{}_{}`'.format(
-                c,
-                c.replace("`", ""),
-                time.strftime("%Y%m%d_%H%M"))
-            for c in column_names]
+        table_name = self.table_name(stream, without_schema=True)
+        column = safe_column_name(column)
+        columns = self.get_table_columns(table_name)
+        columns_dict = {safe_column_name(c['column_name'].lower()): c for c in columns}
 
-        version_column = """SELECT *
-        EXCEPT({column_names}),
-        {renamed_columns}
-        FROM {table_name}""".format(
-            table_name=table_name,
-            column_names = ', '.join(column_names),
-            renamed_columns = ', '.join(renamed_columns))
+        # check if we already have this column in the table with a name like column_name__type_suffix
+        for col, col_dict in columns_dict.items():
+            data_type = col_dict['data_type']
+            # this is a existing table column without the date suffix that gets added to arrays and structs
+            col_without_dt_suffix = re.sub(r"[0-9]{8}_[0-9]{4}", "", col)
+            if col_without_dt_suffix in [column, col_with_type_suffix] and col_type.lower() == data_type.lower():
+                # example: the column named ID in the stage table exists as ID__int in the final table
+                self.renamed_columns[column] = col
 
-        logger.info('Versioning column: {}'.format(version_column))
-
-        job_config = bigquery.QueryJobConfig()
-        project_id = self.connection_config['project_id']
-        job_config.destination = '{}.{}'.format(project_id, table_name)
-        job_config.write_disposition = 'WRITE_TRUNCATE'
-        client = self.open_connection()
-        query_job = client.query(version_column, job_config=job_config)
-        query_job.result()
+        # if we didnt find a existing suitable column, create it
+        if not column in self.renamed_columns:
+            logger.info('Versioning column: {}'.format(col_with_type_suffix))
+            self.add_column(col_with_type_suffix, col_type, stream)
+            self.renamed_columns[column] = col_with_type_suffix
 
     def add_column(self, column, col_type, stream):
         client = self.open_connection()
@@ -658,7 +666,7 @@ class DbSync:
         table = client.get_table(table_ref)  # API request
 
         schema = table.schema[:]
-        schema.append(bigquery.SchemaField(column, col_type)) 
+        schema.append(bigquery.SchemaField(column.replace('`', ''), col_type)) 
         table.schema = schema
         logger.info('Adding column: {}'.format(column))
         table = client.update_table(table, ['schema'])  # API request
