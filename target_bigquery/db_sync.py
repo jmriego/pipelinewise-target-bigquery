@@ -6,6 +6,7 @@ import inflection
 import re
 import itertools
 import time
+from decimal import Decimal
 
 from google.cloud import bigquery
 from google.cloud.bigquery.job import SourceFormat
@@ -108,8 +109,11 @@ def column_type_avro(name, schema_property):
             'type': 'int',
             'logicalType': 'time-millis'}
     elif 'number' in property_type:
-        result_type = 'bytes'
-        result['logicalType'] = 'decimal'
+        result_type = {
+            'type': 'bytes',
+            'logicalType': 'decimal',
+            'scale': 9,
+            'precision': 38}
     elif 'integer' in property_type and 'string' in property_type:
         result_type = 'string'
     elif 'integer' in property_type:
@@ -393,6 +397,8 @@ class DbSync:
                         result[name] = json.dumps(flatten[name])
                     elif 'array' in props['type'] and not 'items' in props:
                         result[name] = json.dumps(flatten[name])
+                    elif 'number' in props['type']:
+                        result[name] = Decimal(str(flatten[name]))
                     else:
                         result[name] = flatten[name] if name in flatten else ''
                 else:
