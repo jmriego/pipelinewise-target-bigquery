@@ -319,8 +319,6 @@ class DbSync:
                 value_type = "INT64"
             elif isinstance(value, float):
                 value_type = "NUMERIC"
-            elif isinstance(value, float):
-                value_type = "FLOAT64"
             elif isinstance(value, bool):
                 value_type = "BOOL"
             else:
