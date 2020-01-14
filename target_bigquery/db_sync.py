@@ -367,10 +367,12 @@ class DbSync:
         return ','.join(key_props)
 
     def avro_schema(self):
+        project_id = self.connection_config['project_id']
+        clean_project_id = re.sub('[^a-zA-Z0-9]', '', project_id)
         schema = {
              "type": "record",
              "namespace": "{}.{}.pipelinewise.avro".format(
-                 self.connection_config['project_id'],
+                 clean_project_id,
                  self.schema_name,
                  ),
              "name": self.stream_schema_message['stream'],
