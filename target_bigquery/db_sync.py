@@ -45,8 +45,9 @@ def column_type(schema_property):
         try:
             items_type = column_type(schema_property['items'])
         except KeyError:
-            items_type = 'string'
-        result_type = 'array<{}>'.format(items_type)
+            result_type = 'string'
+        else:
+            result_type = 'array<{}>'.format(items_type)
 
     elif 'object' in property_type:
         items_types = {col: column_type(schema) for col, schema in schema_property.get('properties', {}).items()}
@@ -81,7 +82,7 @@ def column_type(schema_property):
 def column_type_avro(name, schema_property):
     property_type = schema_property['type']
     property_format = schema_property.get('format', None)
-    result = {"name": name}
+    result = {"name": safe_column_name(name, quotes=False)}
 
     if 'array' in property_type:
         items_type = column_type_avro(name, schema_property['items'])
@@ -129,6 +130,8 @@ def column_type_avro(name, schema_property):
 
 def safe_column_name(name, quotes=True):
     name = name.replace('`', '')
+    pattern = '[^a-zA-Z0-9_]'
+    name = re.sub(pattern, '_', name)
     if quotes:
         return '`{}`'.format(name).lower()
     else:
@@ -159,6 +162,7 @@ def flatten_schema(d, parent_key=[], sep='__', level=0, max_level=0):
         return {}
 
     for k, v in d['properties'].items():
+        k = safe_column_name(k, quotes=False)
         new_key = flatten_key(k, parent_key, sep)
         if 'type' in v.keys():
             if 'object' in v['type'] and 'properties' in v and level < max_level:
@@ -189,6 +193,7 @@ def flatten_schema(d, parent_key=[], sep='__', level=0, max_level=0):
 def flatten_record(d, parent_key=[], sep='__', level=0, max_level=0):
     items = []
     for k, v in d.items():
+        k = safe_column_name(k, quotes=False)
         new_key = flatten_key(k, parent_key, sep)
         if isinstance(v, collections.MutableMapping) and level < max_level:
             items.extend(flatten_record(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
@@ -346,16 +351,16 @@ class DbSync:
 
     def table_name(self, stream_name, is_temporary=False, without_schema=False):
         stream_dict = stream_name_to_dict(stream_name)
-        table_name = stream_dict['table_name']
-        bq_table_name = table_name.replace('.', '_').replace('-', '_').lower()
+        pattern = '[^a-zA-Z0-9]'
+        table_name = re.sub(pattern, '_', stream_dict['table_name']).lower()
 
         if is_temporary:
-            bq_table_name =  '{}_temp'.format(bq_table_name)
+            table_name =  '{}_temp'.format(table_name)
 
         if without_schema:
-            return '{}'.format(bq_table_name)
+            return '{}'.format(table_name)
         else:
-            return '{}.{}'.format(self.schema_name, bq_table_name)
+            return '{}.{}'.format(self.schema_name, table_name)
 
     def record_primary_key_string(self, record):
         if len(self.stream_schema_message['key_properties']) == 0:
@@ -370,7 +375,8 @@ class DbSync:
 
     def avro_schema(self):
         project_id = self.connection_config['project_id']
-        clean_project_id = re.sub('[^a-zA-Z0-9]', '', project_id)
+        pattern = r"[^A-Za-z0-9_]"
+        clean_project_id = re.sub(pattern, '', project_id)
         schema = {
              "type": "record",
              "namespace": "{}.{}.pipelinewise.avro".format(
@@ -380,7 +386,6 @@ class DbSync:
              "name": self.stream_schema_message['stream'],
              "fields": [column_type_avro(name, c) for name, c in self.flatten_schema.items()]} 
 
-        pattern = r"[^A-Za-z0-9_]"
         if re.search(pattern, schema['name']):
             schema["alias"] = schema['name']
             schema["name"] = re.sub(pattern, "_", schema['name'])

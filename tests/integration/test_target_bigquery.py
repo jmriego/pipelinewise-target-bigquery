@@ -364,11 +364,11 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(
             table_non_db_friendly_columns,
             [
-                {'c_pk': 1, 'CAMELCASECOLUMN': 'Dummy row 1', 'MINUS-COLUMN': 'Dummy row 1'},
-                {'c_pk': 2, 'CAMELCASECOLUMN': 'Dummy row 2', 'MINUS-COLUMN': 'Dummy row 2'},
-                {'c_pk': 3, 'CAMELCASECOLUMN': 'Dummy row 3', 'MINUS-COLUMN': 'Dummy row 3'},
-                {'c_pk': 4, 'CAMELCASECOLUMN': 'Dummy row 4', 'MINUS-COLUMN': 'Dummy row 4'},
-                {'c_pk': 5, 'CAMELCASECOLUMN': 'Dummy row 5', 'MINUS-COLUMN': 'Dummy row 5'},
+                {'c_pk': 1, 'camelcasecolumn': 'Dummy row 1', 'minus_column': 'Dummy row 1'},
+                {'c_pk': 2, 'camelcasecolumn': 'Dummy row 2', 'minus_column': 'Dummy row 2'},
+                {'c_pk': 3, 'camelcasecolumn': 'Dummy row 3', 'minus_column': 'Dummy row 3'},
+                {'c_pk': 4, 'camelcasecolumn': 'Dummy row 4', 'minus_column': 'Dummy row 4'},
+                {'c_pk': 5, 'camelcasecolumn': 'Dummy row 5', 'minus_column': 'Dummy row 5'},
             ])
 
     def test_nested_schema_unflattening(self):
@@ -451,16 +451,6 @@ class TestIntegration(unittest.TestCase):
         table_two = query(bigquery, "SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
         table_three = query(bigquery, "SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
 
-        # Get the previous column name from information schema in test_table_two
-        previous_column_name = query(bigquery, """
-            SELECT column_name
-              FROM {}.INFORMATION_SCHEMA.COLUMNS
-             WHERE table_name = 'test_table_two'
-               AND ordinal_position = 4
-            """.format(
-                    target_schema
-                ))[0]["column_name"]
-
         # Table one should have no changes
         self.assertEqual(
             table_one,
@@ -471,10 +461,10 @@ class TestIntegration(unittest.TestCase):
             table_two,
             [
                 {'c_int': 1, 'c_pk': 1,
-                 'c_varchar': '1', previous_column_name: datetime.datetime(2019, 2, 1, 15, 12, 45, tzinfo=timezone.utc), 'c_date': None},
+                 'c_varchar': '1', 'c_date': datetime.datetime(2019, 2, 1, 15, 12, 45, tzinfo=timezone.utc), 'c_date__st': None},
                 {'c_int': 2, 'c_pk': 2, 'c_varchar': '2',
-                 previous_column_name: datetime.datetime(2019, 2, 10, 2, tzinfo=timezone.utc), 'c_date': '2019-02-12 02:00:00'},
-                {'c_int': 3, 'c_pk': 3, 'c_varchar': '2', previous_column_name: None, 'c_date': '2019-02-15 02:00:00'}
+                 'c_date': datetime.datetime(2019, 2, 10, 2, tzinfo=timezone.utc), 'c_date__st': '2019-02-12 02:00:00'},
+                {'c_int': 3, 'c_pk': 3, 'c_varchar': '2', 'c_date': None, 'c_date__st': '2019-02-15 02:00:00'}
             ]
         )
 
