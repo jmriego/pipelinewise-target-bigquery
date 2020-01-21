@@ -73,6 +73,64 @@ Full list of options in `config.json`:
 | hard_delete                             | Boolean |            | (Default: False) When `hard_delete` option is true then DELETE SQL commands will be performed in BigQuery to delete rows in tables. It's achieved by continuously checking the  `_SDC_DELETED_AT` metadata column sent by the singer tap. Due to deleting rows requires metadata columns, `hard_delete` option automatically enables the `add_metadata_columns` option as well. |
 
 
+### Schema Changes
+
+This target doesn not follow the [PipelineWise specification](https://transferwise.github.io/pipelinewise/user_guide/schema_changes.html) for schema changes except versioning columns because of the way BigQuery works.
+
+BigQuery does not allow for column renames so a column modification works like this instead:
+
+
+Versioning columns
+''''''''''''''''''
+
+Target connectors are versioning columns **when data type change is detected** in the source
+table. Versioning columns means that the old column with the old datatype is kept
+and a new column is created by adding a suffix to the name depending of the type (and also a timestamp for struct and arrays)
+to the column name with the new data type. This new column will be added to the table.
+
+For example if the data type of ``COLUMN_THREE`` changes from ``INTEGER`` to ``VARCHAR``
+PipelineWise will replicate data in this order:
+
+1. Before changing data type ``COLUMN_THREE`` is ``INTEGER`` just like in in source table:
+
++----------------+----------------+------------------+
+| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN_THREE** |
+|                |                |   (INTEGER)      |
++----------------+----------------+------------------+
+| text           | text           | 1                | 
++----------------+----------------+------------------+
+| text           | text           | 2                | 
++----------------+----------------+------------------+
+| text           | text           | 3                | 
++----------------+----------------+------------------+
+
+2. After the data type change ``COLUMN_THREE`` remains ``INTEGER`` with
+the old data and a new ``COLUMN_TREE__st`` column created with ``STRING`` type that keeps
+data only after the change.
+
++----------------+----------------+------------+----------------------+
+| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN** | **COLUMN_THREE__st** |
+|                |                | (INTEGER)  |    (VARCHAR)         |
++----------------+----------------+------------+----------------------+
+| text           | text           | 111        |                      |
++----------------+----------------+------------+----------------------+
+| text           | text           | 222        |                      |
++----------------+----------------+------------+----------------------+
+| text           | text           | 333        |                      |
++----------------+----------------+------------+----------------------+
+| text           | text           |            | 444-ABC              |
++----------------+----------------+------------+----------------------+
+| text           | text           |            | 555-DEF              | 
++----------------+----------------+------------+----------------------+
+
+.. warning::
+
+  Please note the ``NULL`` values in ``COLUMN_THREE`` and ``COLUMN_THREE__st`` columns.
+  **Historical values are not converted to the new data types!**
+  If you need the actual representation of the table after data type changes then
+  you need to resync the table.
+
+
 ### To run tests:
 
 1. Define environment variables that requires running the tests

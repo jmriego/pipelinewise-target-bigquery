@@ -622,11 +622,11 @@ class DbSync:
 
     def version_column(self, column, col_type, stream):
         col_type_suffixes = {
-            'timestamp': 'ts',
+            'timestamp': 'ti',
             'time': 'tm',
-            'numeric': 'num',
+            'numeric': 'de',
             'string': 'st',
-            'int64': 'int',
+            'int64': 'it',
             'bool': 'bo',
             'array': 'arr',
             'struct': 'sct'}
