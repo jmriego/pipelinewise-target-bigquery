@@ -6,7 +6,7 @@ import inflection
 import re
 import itertools
 import time
-from decimal import Context
+from decimal import Decimal
 
 from google.cloud import bigquery
 from google.cloud.bigquery.job import SourceFormat
@@ -395,7 +395,7 @@ class DbSync:
     # TODO: write tests for the json.dumps lines below and verify nesting
     # TODO: improve performance
     def records_to_avro(self, records):
-        context = Context(prec=9)
+        NINE_DECIMALS = Decimal('0.000000001')
         for record in records:
             flatten = flatten_record(record, max_level=self.data_flattening_max_level)
             result = {}
@@ -406,7 +406,7 @@ class DbSync:
                     elif 'array' in props['type'] and not 'items' in props:
                         result[name] = json.dumps(flatten[name])
                     elif 'number' in props['type']:
-                        result[name] = context.create_decimal(str(flatten[name]))
+                        result[name] = Decimal(flatten[name]).quantize(NINE_DECIMALS)
                     else:
                         result[name] = flatten[name] if name in flatten else ''
                 else:
