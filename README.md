@@ -103,13 +103,13 @@ PipelineWise will replicate data in this order:
 the old data and a new ``COLUMN_TREE__st`` column created with ``STRING`` type that keeps
 data only after the change.
 
-| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN** (INTEGER) | **COLUMN_THREE__st** (VARCHAR) |
-|----------------|----------------|----------------------|--------------------------------|
-| text           | text           | 111                  |                                |
-| text           | text           | 222                  |                                |
-| text           | text           | 333                  |                                |
-| text           | text           |                      | 444-ABC                        |
-| text           | text           |                      | 555-DEF                        |
+| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN_THREE** (INTEGER) | **COLUMN_THREE__st** (VARCHAR) |
+|----------------|----------------|----------------------------|--------------------------------|
+| text           | text           | 111                        |                                |
+| text           | text           | 222                        |                                |
+| text           | text           | 333                        |                                |
+| text           | text           |                            | 444-ABC                        |
+| text           | text           |                            | 555-DEF                        |
 
 .. warning::
 
