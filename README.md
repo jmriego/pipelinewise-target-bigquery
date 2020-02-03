@@ -93,34 +93,23 @@ PipelineWise will replicate data in this order:
 
 1. Before changing data type ``COLUMN_THREE`` is ``INTEGER`` just like in in source table:
 
-+----------------+----------------+------------------+
-| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN_THREE** |
-|                |                |   (INTEGER)      |
-+----------------+----------------+------------------+
-| text           | text           | 1                | 
-+----------------+----------------+------------------+
-| text           | text           | 2                | 
-+----------------+----------------+------------------+
-| text           | text           | 3                | 
-+----------------+----------------+------------------+
+| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN_THREE** (INTEGER) |
+|----------------|----------------|----------------------------|
+| text           | text           | 1                          |
+| text           | text           | 2                          |
+| text           | text           | 3                          |
 
 2. After the data type change ``COLUMN_THREE`` remains ``INTEGER`` with
 the old data and a new ``COLUMN_TREE__st`` column created with ``STRING`` type that keeps
 data only after the change.
 
-| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN** | **COLUMN_THREE__st** |
-|                |                | (INTEGER)  |    (VARCHAR)         |
-|----------------|----------------|------------|----------------------|
-| text           | text           | 111        |                      |
-|----------------|----------------|------------|----------------------|
-| text           | text           | 222        |                      |
-|----------------|----------------|------------|----------------------|
-| text           | text           | 333        |                      |
-|----------------|----------------|------------|----------------------|
-| text           | text           |            | 444-ABC              |
-|----------------|----------------|------------|----------------------|
-| text           | text           |            | 555-DEF              | 
-|----------------|----------------|------------|----------------------|
+| **COLUMN_ONE** | **COLUMN_TWO** | **COLUMN** (INTEGER) | **COLUMN_THREE__st** (VARCHAR) |
+|----------------|----------------|----------------------|--------------------------------|
+| text           | text           | 111                  |                                |
+| text           | text           | 222                  |                                |
+| text           | text           | 333                  |                                |
+| text           | text           |                      | 444-ABC                        |
+| text           | text           |                      | 555-DEF                        |
 
 .. warning::
 
