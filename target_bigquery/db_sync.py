@@ -406,7 +406,8 @@ class DbSync:
                     elif 'array' in props['type'] and not 'items' in props:
                         result[name] = json.dumps(flatten[name])
                     elif 'number' in props['type']:
-                        result[name] = Decimal(flatten[name]).quantize(NINE_DECIMALS)
+                        n = flatten[name]
+                        result[name] = None if n is None else Decimal(n).quantize(NINE_DECIMALS)
                     else:
                         result[name] = flatten[name] if name in flatten else ''
                 else:
