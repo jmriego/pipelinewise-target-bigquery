@@ -47,7 +47,7 @@ class TestDBSync(unittest.TestCase):
 
     def test_column_type_mapping(self):
         """Test JSON type to BigQuery column type mappings"""
-        mapper = db_sync.column_type
+        mapper = lambda x: db_sync.column_type('dummy', x).field_type
 
         # Incoming JSON schema types
         json_str = {"type": ["string"]}

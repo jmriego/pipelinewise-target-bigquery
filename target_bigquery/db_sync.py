@@ -6,6 +6,7 @@ import inflection
 import re
 import itertools
 import time
+import datetime
 from decimal import Decimal
 
 from google.cloud import bigquery
@@ -13,6 +14,7 @@ from google.cloud.bigquery.job import SourceFormat
 from google.cloud.bigquery import Dataset, WriteDisposition
 from google.cloud.bigquery import SchemaField
 from google.cloud.bigquery import LoadJobConfig
+from google.cloud.bigquery.table import Table
 from google.api_core import exceptions
 
 logger = singer.get_logger()
@@ -38,45 +40,54 @@ def validate_config(config):
     return errors
 
 
-def column_type(schema_property):
-    property_type = schema_property['type']
-    property_format = schema_property.get('format', None)
-    if 'array' in property_type:
-        try:
-            items_type = column_type(schema_property['items'])
-        except KeyError:
-            result_type = 'string'
-        else:
-            result_type = 'array<{}>'.format(items_type)
-
-    elif 'object' in property_type:
-        items_types = {col: column_type(schema) for col, schema in schema_property.get('properties', {}).items()}
-        items_types_clauses = ['{} {}'.format(col, t) for col, t in items_types.items()]
-        if items_types_clauses:
-            result_type = 'struct<{}>'.format(', '.join(items_types_clauses))
-        else:
-            result_type = 'string'
-
+def bigquery_type(property_type, property_format):
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
     # TODO: Detect if timezone postfix exists in the JSON and find if DATETIME or
     # TIMESTAMP which includes time zone is the better column type
-    elif property_format == 'date-time':
-        result_type = 'timestamp'
+    if property_format == 'date-time':
+        return 'timestamp'
     elif property_format == 'time':
-        result_type = 'time'
+        return 'time'
     elif 'number' in property_type:
-        result_type = 'numeric'
+        return 'numeric'
     elif 'integer' in property_type and 'string' in property_type:
-        result_type = 'string'
+        return 'string'
     elif 'integer' in property_type:
-        result_type = 'int64'
+        return 'integer'
     elif 'boolean' in property_type:
-        result_type = 'bool'
+        return 'bool'
     else:
-        result_type = 'string'
+        return 'string'
 
-    return result_type
+
+def column_type(name, schema_property):
+    safe_name = safe_column_name(name, quotes=False)
+    property_type = schema_property['type']
+    property_format = schema_property.get('format', None)
+
+    if 'array' in property_type:
+        try:
+            items_schema = schema_property['items']
+            items_type = bigquery_type(
+                             items_schema['type'],
+                             items_schema.get('format', None))
+        except KeyError:
+            return SchemaField(safe_name, 'string', 'NULLABLE')
+        else:
+            result_type = items_type
+            return SchemaField(safe_name, items_type, 'REPEATED')
+
+    elif 'object' in property_type:
+        fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
+        if fields:
+            return SchemaField(safe_name, 'RECORD', 'NULLABLE', fields=fields)
+        else:
+            return SchemaField(safe_name, 'string', 'NULLABLE')
+
+    else:
+        result_type = bigquery_type(property_type, property_format)
+        return SchemaField(safe_name, result_type, 'NULLABLE')
 
 
 def column_type_avro(name, schema_property):
@@ -128,7 +139,7 @@ def column_type_avro(name, schema_property):
     return result
 
 
-def safe_column_name(name, quotes=True):
+def safe_column_name(name, quotes=False):
     name = name.replace('`', '')
     pattern = '[^a-zA-Z0-9_]'
     name = re.sub(pattern, '_', name)
@@ -136,10 +147,6 @@ def safe_column_name(name, quotes=True):
         return '`{}`'.format(name).lower()
     else:
         return '{}'.format(name).lower()
-
-
-def column_clause(name, schema_property):
-    return '{} {}'.format(safe_column_name(name), column_type(schema_property))
 
 
 def flatten_key(k, parent_key, sep):
@@ -422,8 +429,6 @@ class DbSync:
         client = self.open_connection()
         # TODO: make temp table creation and DML atomic with merge
         temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
-        # query = self.create_table_query(is_temporary=True)
-        # self.query(query)
 
         logger.info("INSERTING INTO {} ({})".format(
             temp_table,
@@ -436,11 +441,7 @@ class DbSync:
         job_config = bigquery.LoadJobConfig()
         job_config.source_format = bigquery.SourceFormat.AVRO
         job_config.use_avro_logical_types = True
-        # job_config.schema = [SchemaField(name, column_type(schema)) for name, schema in self.flatten_schema.items()]
         job_config.write_disposition = 'WRITE_TRUNCATE'
-        # job_config.skip_leading_rows = 1
-        # job_config.autodetect = True
-        # TODO: handle retries best practices https://cloud.google.com/bigquery/docs/loading-data-local
         job = client.load_table_from_file(f, table_ref, job_config=job_config)
         job.result()
 
@@ -454,9 +455,7 @@ class DbSync:
         logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))
 
     def drop_temp_table(self, temp_table):
-        stream_schema_message = self.stream_schema_message
         temp_schema = self.connection_config.get('temp_schema', self.schema_name)
-        table = self.table_name(stream_schema_message['stream'])
 
         return "DROP TABLE IF EXISTS {}.{}".format(
             temp_schema,
@@ -497,40 +496,64 @@ class DbSync:
             temp_schema=temp_schema,
             temp_table=temp_table,
             primary_key_condition=self.primary_key_condition(table_without_schema),
-            set_values=', '.join(['{}=s.{}'.format(self.renamed_columns.get(c, c), c) for c in columns]),
-            renamed_cols=', '.join(self.renamed_columns.get(c, c) for c in columns),
+            set_values=', '.join(
+                '{}=s.{}'.format(
+                    safe_column_name(self.renamed_columns.get(c, c), quotes=True),
+                    safe_column_name(c, quotes=True))
+                for c in columns),
+            renamed_cols=', '.join(
+                safe_column_name(self.renamed_columns.get(c, c), quotes=True)
+                for c in columns),
             cols=', '.join(c for c in self.column_names()))
         return result
 
     def primary_key_condition(self, right_table):
         stream_schema_message = self.stream_schema_message
         names = primary_column_names(stream_schema_message)
-        return ' AND '.join(['s.{} = {}.{}'.format(self.renamed_columns.get(c, c), right_table, c) for c in names])
+        return ' AND '.join(
+            ['s.{} = {}.{}'
+                 .format(
+                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
+                     right_table,
+                     safe_column_name(c, quotes=True))
+             for c in names])
 
     def primary_key_null_condition(self, right_table):
         stream_schema_message = self.stream_schema_message
         names = primary_column_names(stream_schema_message)
-        return ' AND '.join(['{}.{} is null'.format(right_table, c) for c in names])
+        return ' AND '.join(
+            ['{}.{} is null'
+                 .format(
+                     right_table,
+                     safe_column_name(c, quotes=True))
+             for c in names])
 
     def column_names(self):
         return [safe_column_name(name) for name in self.flatten_schema]
 
-    def create_table_query(self, is_temporary=False):
+    def create_table(self, is_temporary=False):
         stream_schema_message = self.stream_schema_message
-        columns = [
-            column_clause(
+
+        client = self.open_connection()
+        project_id = self.connection_config['project_id']
+        dataset_id = self.schema_name
+        table_name =  self.table_name(stream_schema_message['stream'], is_temporary, without_schema=True)
+
+        schema = [
+            column_type(
                 name,
                 schema
             )
             for (name, schema) in self.flatten_schema.items()
         ]
 
-        return 'CREATE TABLE IF NOT EXISTS {} ({}) {}'.format(
-            # 'TEMP ' if is_temporary else '',
-            self.table_name(stream_schema_message['stream'], is_temporary),
-            ', '.join(columns),
-            'OPTIONS(expiration_timestamp=TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 1 DAY))' if is_temporary else ''
-        )
+        table = Table(
+                    '{}.{}.{}'.format(project_id, dataset_id, table_name),
+                    schema)
+        if is_temporary:
+            table.expires = datetime.datetime.now() + datetime.timedelta(days=1)
+
+        client.create_table(table, schema)
 
     def grant_usage_on_schema(self, schema_name, grantee):
         query = "GRANT USAGE ON SCHEMA {} TO GROUP {}".format(schema_name, grantee)
@@ -585,44 +608,52 @@ class DbSync:
             .format(schema=self.schema_name)
         )
 
+    def alias_field(self, field, alias):
+        api_repr = field.to_api_repr()
+        api_repr['name'] = alias
+        return SchemaField.from_api_repr(api_repr)
+
     def get_table_columns(self, table_name):
-        return self.query("""SELECT column_name, data_type
-      FROM {}.INFORMATION_SCHEMA.COLUMNS
-      WHERE lower(table_name) = '{}'""".format(self.schema_name.lower(), table_name.lower()))
+        client = self.open_connection()
+        dataset_ref = client.dataset(self.schema_name)
+
+        project_id = self.connection_config['project_id']
+        dataset_id = self.schema_name
+        table_name = self.table_name(table_name, without_schema=True)
+
+        table_ref = client.dataset(dataset_id).table(table_name)
+        table = client.get_table(table_ref)  # API request
+
+        return {field.name: field for field in table.schema}
 
     def update_columns(self):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         table_name = self.table_name(stream, without_schema=True)
         columns = self.get_table_columns(table_name)
-        columns_dict = {column['column_name'].lower(): column for column in columns}
 
         columns_to_add = [
-            (
-                safe_column_name(name, quotes=False),
-                column_type(properties_schema)
-            )
+            column_type(name, properties_schema)
             for (name, properties_schema) in self.flatten_schema.items()
-            if name.lower() not in columns_dict
+            if safe_column_name(name, quotes=False) not in columns
         ]
 
-        for column, col_type in columns_to_add:
-            self.add_column(column, col_type, stream)
+        for field in columns_to_add:
+            self.add_column(field, stream)
 
         columns_to_replace = [
-            (
-                safe_column_name(name, quotes=False),
-                column_type(properties_schema)
-            )
+            column_type(name, properties_schema)
             for (name, properties_schema) in self.flatten_schema.items()
-            if name.lower() in columns_dict and
-               columns_dict[name.lower()]['data_type'].lower() != column_type(properties_schema).lower()
+            if name.lower() in columns and
+               columns[name.lower()] != column_type(name, properties_schema)
         ]
 
-        for column, col_type in columns_to_replace:
-            self.version_column(column, col_type, stream)
+        for field in columns_to_replace:
+            self.version_column(field, stream)
 
-    def version_column(self, column, col_type, stream):
+
+    def version_column(self, field, stream):
+        column = safe_column_name(field.name, quotes=False)
         col_type_suffixes = {
             'timestamp': 'ti',
             'time': 'tm',
@@ -633,35 +664,35 @@ class DbSync:
             'array': 'arr',
             'struct': 'sct'}
 
-        if col_type.startswith('array'):
-            col_with_type_suffix = '{}__{}{}'.format(column.replace("`", ""), col_type_suffixes['array'], time.strftime("%Y%m%d_%H%M"))
-        elif col_type.startswith('struct'):
-            col_with_type_suffix = '{}__{}{}'.format(column.replace("`", ""), col_type_suffixes['struct'], time.strftime("%Y%m%d_%H%M"))
+        if field.field_type == 'REPEATED':
+            field_with_type_suffix = '{}__{}{}'.format(column, col_type_suffixes['array'], time.strftime("%Y%m%d_%H%M"))
+        elif field.field_type == 'RECORD':
+            field_with_type_suffix = '{}__{}{}'.format(column, col_type_suffixes['struct'], time.strftime("%Y%m%d_%H%M"))
         else:
-            col_with_type_suffix = '{}__{}'.format(column.replace("`", ""), col_type_suffixes[col_type])
-        col_with_type_suffix = safe_column_name(col_with_type_suffix)
+            field_with_type_suffix = '{}__{}'.format(column, col_type_suffixes[field.field_type])
+
+        field_without_dt_suffix = re.sub(r"[0-9]{8}_[0-9]{4}", "", field_with_type_suffix)
 
         table_name = self.table_name(stream, without_schema=True)
-        column = safe_column_name(column)
-        columns = self.get_table_columns(table_name)
-        columns_dict = {safe_column_name(c['column_name'].lower()): c for c in columns}
+        table_columns = self.get_table_columns(table_name)
 
         # check if we already have this column in the table with a name like column_name__type_suffix
-        for col, col_dict in columns_dict.items():
-            data_type = col_dict['data_type']
+        for col, schemafield in table_columns.items():
             # this is a existing table column without the date suffix that gets added to arrays and structs
             col_without_dt_suffix = re.sub(r"[0-9]{8}_[0-9]{4}", "", col)
-            if col_without_dt_suffix in [column, col_with_type_suffix] and col_type.lower() == data_type.lower():
+                
+            if (col_without_dt_suffix in [column, field_without_dt_suffix] and
+                self.alias_field(field, '') == self.alias_field(schemafield, '')):
                 # example: the column named ID in the stage table exists as ID__int in the final table
                 self.renamed_columns[column] = col
 
         # if we didnt find a existing suitable column, create it
         if not column in self.renamed_columns:
-            logger.info('Versioning column: {}'.format(col_with_type_suffix))
-            self.add_column(col_with_type_suffix, col_type, stream)
-            self.renamed_columns[column] = col_with_type_suffix
+            logger.info('Versioning column: {}'.format(field_with_type_suffix))
+            self.add_column(self.alias_field(field, field_with_type_suffix), stream)
+            self.renamed_columns[column] = field_with_type_suffix
 
-    def add_column(self, column, col_type, stream):
+    def add_column(self, field, stream):
         client = self.open_connection()
         dataset_ref = client.dataset(self.schema_name)
 
@@ -673,10 +704,11 @@ class DbSync:
         table = client.get_table(table_ref)  # API request
 
         schema = table.schema[:]
-        schema.append(bigquery.SchemaField(column.replace('`', ''), col_type)) 
+        schema.append(field) 
         table.schema = schema
-        logger.info('Adding column: {}'.format(column))
-        table = client.update_table(table, ['schema'])  # API request
+
+        logger.info('Adding column: {}'.format(field.name))
+        client.update_table(table, ['schema'])  # API request
 
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
@@ -685,9 +717,8 @@ class DbSync:
         table_name_with_schema = self.table_name(stream)
         found_tables = [table for table in (self.get_tables()) if table['table_name'].lower() == table_name]
         if len(found_tables) == 0:
-            query = self.create_table_query()
             logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))
-            self.query(query)
+            self.create_table()
 
             self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
         else:
