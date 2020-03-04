@@ -6,7 +6,7 @@ with open('README.md') as f:
       long_description = f.read()
 
 setup(name="pipelinewise-target-bigquery",
-      version="0.1.0",
+      version="0.2.0",
       description="Singer.io target for loading data to BigQuery - PipelineWise compatible",
       long_description=long_description,
       long_description_content_type='text/markdown',
