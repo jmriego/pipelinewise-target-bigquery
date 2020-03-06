@@ -56,7 +56,7 @@ def bigquery_type(property_type, property_format):
     elif 'integer' in property_type:
         return 'integer'
     elif 'boolean' in property_type:
-        return 'bool'
+        return 'boolean'
     else:
         return 'string'
 
