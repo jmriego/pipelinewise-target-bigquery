@@ -96,9 +96,13 @@ def column_type_avro(name, schema_property):
     result = {"name": safe_column_name(name, quotes=False)}
 
     if 'array' in property_type:
-        items_type = column_type_avro(name, schema_property['items'])
-        result_type = 'array'
-        result['items'] = items_type['type']
+        try:
+            items_type = column_type_avro(name, schema_property['items'])
+            result_type = {
+                'type': 'array',
+                'items': items_type['type']}
+        except KeyError:
+            result_type = 'string'
     elif 'object' in property_type:
         items_types = [
             column_type_avro(col, schema_property)
@@ -410,7 +414,10 @@ class DbSync:
                 if name in flatten:
                     if 'object' in props['type'] and not 'properties' in props:
                         result[name] = json.dumps(flatten[name])
-                    elif 'array' in props['type'] and not 'items' in props:
+                    # dump to string if array without items or recursive
+                    elif ('array' in props['type'] and
+                          (not 'items' in props
+                           or '$ref' in props['items'])):
                         result[name] = json.dumps(flatten[name])
                     elif 'number' in props['type']:
                         n = flatten[name]
@@ -724,4 +731,3 @@ class DbSync:
         else:
             logger.info("Table '{}' exists".format(table_name_with_schema))
             self.update_columns()
-

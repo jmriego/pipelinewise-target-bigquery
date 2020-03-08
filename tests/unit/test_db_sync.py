@@ -62,6 +62,7 @@ class TestDBSync(unittest.TestCase):
         json_bool = {"type": ["boolean"]}
         json_obj = {"type": ["object"]}
         json_arr = {"type": ["array"]}
+        jsonb = {"type": ["null", "object"]}
 
         # Mapping from JSON schema types ot BigQuery column types
         self.assertEquals(mapper(json_str), 'string')
@@ -71,11 +72,12 @@ class TestDBSync(unittest.TestCase):
         self.assertEquals(mapper(json_t), 'time')
         self.assertEquals(mapper(json_t_or_null), 'time')
         self.assertEquals(mapper(json_num), 'numeric')
-        self.assertEquals(mapper(json_int), 'int64')
+        self.assertEquals(mapper(json_int), 'integer')
         self.assertEquals(mapper(json_int_or_str), 'string')
-        self.assertEquals(mapper(json_bool), 'bool')
+        self.assertEquals(mapper(json_bool), 'boolean')
         self.assertEquals(mapper(json_obj), 'string')
         self.assertEquals(mapper(json_arr), 'string')
+        self.assertEquals(mapper(jsonb), 'string')
         # TODO: add tests for array with items
         # TODO: add tests for record with properties
 
