@@ -511,7 +511,7 @@ class DbSync:
             renamed_cols=', '.join(
                 safe_column_name(self.renamed_columns.get(c, c), quotes=True)
                 for c in columns),
-            cols=', '.join(c for c in self.column_names()))
+            cols=', '.join(safe_column_name(c,quotes=True) for c in self.column_names()))
         return result
 
     def primary_key_condition(self, right_table):
