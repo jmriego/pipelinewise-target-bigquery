@@ -667,7 +667,9 @@ class DbSync:
             'numeric': 'de',
             'string': 'st',
             'int64': 'it',
+            'integer': 'it',
             'bool': 'bo',
+            'boolean': 'bo',
             'array': 'arr',
             'struct': 'sct'}
 
