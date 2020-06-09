@@ -11,14 +11,14 @@ setup(name="pipelinewise-target-bigquery",
       long_description=long_description,
       long_description_content_type='text/markdown',
       author="jmriego",
-      url='https://github.com/jmriego/pipelinewise-target-bigquery',
+      url='https://github.com/transferwise/pipelinewise-target-bigquery',
       classifiers=[
           'License :: OSI Approved :: Apache Software License',
           'Programming Language :: Python :: 3 :: Only'
       ],
       py_modules=["target_bigquery"],
       install_requires=[
-          'singer-python==5.1.1',
+          'pipelinewise-singer-python==1.*',
           'setuptools==40.3.0',
           'google-cloud-bigquery==1.23.0',
           'joblib==0.13.2',
@@ -37,6 +37,6 @@ setup(name="pipelinewise-target-bigquery",
           target-bigquery=target_bigquery:main
       """,
       packages=["target_bigquery"],
-      package_data = {},
+      package_data={},
       include_package_data=True,
 )
