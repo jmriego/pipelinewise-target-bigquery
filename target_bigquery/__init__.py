@@ -74,8 +74,7 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
             # TODO: figure out why we can get _sdc_deleted_at as both datetime and string objects
             if isinstance(dt, date):
                 return dt
-            else:
-                return datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ')
+            return datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ')
         except TypeError:
             return None
 

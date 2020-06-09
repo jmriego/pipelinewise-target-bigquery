@@ -40,6 +40,7 @@ def validate_config(config):
     return errors
 
 
+# pylint: disable=no-else-return,too-many-return-statements
 def bigquery_type(property_type, property_format):
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
@@ -615,6 +616,7 @@ class DbSync:
             .format(schema=self.schema_name)
         )
 
+    # pylint: disable=no-self-use
     def alias_field(self, field, alias):
         api_repr = field.to_api_repr()
         api_repr['name'] = alias
