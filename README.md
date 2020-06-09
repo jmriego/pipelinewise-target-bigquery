@@ -14,7 +14,7 @@ The recommended method of running this target is to use it from [PipelineWise](h
 
 If you want to run this [Singer Target](https://singer.io) independently please read further.
 
-### Install
+## Install
 
 First, make sure Python 3 is installed on your system or follow these
 installation instructions for [Mac](http://docs.python-guide.org/en/latest/starting/install3/osx/) or
@@ -75,13 +75,11 @@ Full list of options in `config.json`:
 
 ### Schema Changes
 
-This target doesn not follow the [PipelineWise specification](https://transferwise.github.io/pipelinewise/user_guide/schema_changes.html) for schema changes except versioning columns because of the way BigQuery works.
+This target does follow the [PipelineWise specification](https://transferwise.github.io/pipelinewise/user_guide/schema_changes.html) for schema changes except versioning columns because of the way BigQuery works.
 
 BigQuery does not allow for column renames so a column modification works like this instead:
 
-
-Versioning columns
-''''''''''''''''''
+#### Versioning columns
 
 Target connectors are versioning columns **when data type change is detected** in the source
 table. Versioning columns means that the old column with the old datatype is kept
