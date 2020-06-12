@@ -7,7 +7,7 @@ import re
 import itertools
 import time
 import datetime
-from decimal import Decimal
+from decimal import Decimal, getcontext
 
 from google.cloud import bigquery
 from google.cloud.bigquery.job import SourceFormat
@@ -19,6 +19,12 @@ from google.api_core import exceptions
 
 logger = singer.get_logger()
 
+PRECISION = 38
+SCALE = 9
+getcontext().prec = PRECISION
+# Limit decimals to the same precision and scale as BigQuery accepts
+ALLOWED_DECIMALS = Decimal(10) ** Decimal(-SCALE)
+MAX_NUM = (Decimal(10) ** Decimal(PRECISION-SCALE)) - ALLOWED_DECIMALS
 
 def validate_config(config):
     errors = []
@@ -330,7 +336,8 @@ class DbSync:
 
     def open_connection(self):
         project_id = self.connection_config['project_id']
-        return bigquery.Client(project=project_id)
+        location = self.connection_config.get('location', None)
+        return bigquery.Client(project=project_id, location=location)
 
     def query(self, query, params=[]):
         def to_query_parameter(value):
@@ -407,7 +414,6 @@ class DbSync:
     # TODO: write tests for the json.dumps lines below and verify nesting
     # TODO: improve performance
     def records_to_avro(self, records):
-        NINE_DECIMALS = Decimal('0.000000001')
         for record in records:
             flatten = flatten_record(record, max_level=self.data_flattening_max_level)
             result = {}
@@ -421,8 +427,12 @@ class DbSync:
                            or '$ref' in props['items'])):
                         result[name] = json.dumps(flatten[name])
                     elif 'number' in props['type']:
-                        n = flatten[name]
-                        result[name] = None if n is None else Decimal(n).quantize(NINE_DECIMALS)
+                        if flatten[name] is None:
+                            result[name] = None
+                        else:
+                            n = Decimal(flatten[name])
+                            # limit n to the range -MAX_NUM to MAX_NUM
+                            result[name] = MAX_NUM if n > MAX_NUM else -MAX_NUM if n < -MAX_NUM else n.quantize(ALLOWED_DECIMALS)
                     else:
                         result[name] = flatten[name] if name in flatten else ''
                 else:
@@ -492,8 +502,8 @@ class DbSync:
         table_without_schema = self.table_name(stream_schema_message['stream'], without_schema=True)
         temp_schema = self.connection_config.get('temp_schema', self.schema_name)
 
-        result = """MERGE {table}
-        USING {temp_schema}.{temp_table} s
+        result = """MERGE `{table}` t
+        USING `{temp_schema}`.`{temp_table}` s
         ON {primary_key_condition}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
@@ -503,7 +513,7 @@ class DbSync:
             table=table,
             temp_schema=temp_schema,
             temp_table=temp_table,
-            primary_key_condition=self.primary_key_condition(table_without_schema),
+            primary_key_condition=self.primary_key_condition(),
             set_values=', '.join(
                 '{}=s.{}'.format(
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
@@ -515,14 +525,13 @@ class DbSync:
             cols=', '.join(safe_column_name(c,quotes=True) for c in self.column_names()))
         return result
 
-    def primary_key_condition(self, right_table):
+    def primary_key_condition(self):
         stream_schema_message = self.stream_schema_message
         names = primary_column_names(stream_schema_message)
         return ' AND '.join(
-            ['s.{} = {}.{}'
+            ['s.{} = t.{}'
                  .format(
                      safe_column_name(self.renamed_columns.get(c, c), quotes=True),
-                     right_table,
                      safe_column_name(c, quotes=True))
              for c in names])
 
