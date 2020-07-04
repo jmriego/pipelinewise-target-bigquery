@@ -122,6 +122,8 @@ data only after the change.
 1. Define environment variables that requires running the tests
 ```
   export GOOGLE_APPLICATION_CREDENTIALS=<credentials-json-file>
+  export TARGET_BIGQUERY_PROJECT=<bigquery project to run your tests on>
+  export TARGET_BIGQUERY_SCHEMA=<temporary schema for running the tests>
 ```
 
 2. Install python dependencies in a virtual env and run nose unit and integration tests
@@ -129,8 +131,7 @@ data only after the change.
   python3 -m venv venv
   . venv/bin/activate
   pip install --upgrade pip
-  pip install .
-  pip install nose
+  pip install -e ".[test]"
 ```
 
 3. To run unit tests:
