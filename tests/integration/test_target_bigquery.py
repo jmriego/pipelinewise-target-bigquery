@@ -4,11 +4,12 @@ import json
 import unittest
 import mock
 import os
+from decimal import Decimal, getcontext
 
 from nose.tools import assert_raises
 
 import target_bigquery
-from target_bigquery.db_sync import DbSync
+from target_bigquery.db_sync import DbSync, PRECISION
 
 try:
     import tests.utils as test_utils
@@ -346,6 +347,49 @@ class TestIntegration(unittest.TestCase):
                 {'c_int': 4, 'c_pk': 4, 'c_varchar': 'Thai: แผ่นดินฮั่นเสื่อมโทรมแสนสังเวช'},
                 {'c_int': 5, 'c_pk': 5, 'c_varchar': 'Arabic: لقد لعبت أنت وأصدقاؤك لمدة وحصلتم علي من إجمالي النقاط'},
                 {'c_int': 6, 'c_pk': 6, 'c_varchar': 'Special Characters: [",\'!@£$%^&*()]'}
+            ])
+
+    def test_decimal_number_range(self):
+        """Loading table with decimals outside BigQuery accepted values"""
+        tap_lines = test_utils.get_test_tap_lines('messages-with-bad-decimals.json')
+
+        # Load with default settings
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        getcontext().prec = PRECISION
+        table_bad_decimals = query(bigquery, 
+            "SELECT * FROM {}.test_table_bad_decimals ORDER BY c_pk".format(target_schema))
+
+        self.assertEqual(
+            table_bad_decimals,
+            [
+                {'c_pk': 1, 'decimalcolumn': Decimal('99999999999999999999999999999.999999999')},
+                {'c_pk': 2, 'decimalcolumn': Decimal('-99999999999999999999999999999.999999999')},
+                {'c_pk': 3, 'decimalcolumn': Decimal('3.141592654')},
+                {'c_pk': 4, 'decimalcolumn': None},
+                {'c_pk': 5, 'decimalcolumn': Decimal('1.000000010')}
+            ])
+
+    def test_reserved_word_table_name(self):
+        """Loading table with a reserved name"""
+        tap_lines = test_utils.get_test_tap_lines('messages-with-reserved-table-name.json')
+
+        # Load with default settings
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        table_non_db_friendly_columns = query(bigquery, 
+            "SELECT * FROM {}.`full` ORDER BY c_pk".format(target_schema))
+
+        self.assertEqual(
+            table_non_db_friendly_columns,
+            [
+                {'c_pk': 1, 'camelcasecolumn': 'Dummy row 1', 'minus_column': 'Dummy row 1'}
             ])
 
     def test_non_db_friendly_columns(self):
