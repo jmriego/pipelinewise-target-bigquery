@@ -453,10 +453,12 @@ class DbSync:
         job = client.load_table_from_file(f, table_ref, job_config=job_config)
         job.result()
 
-        if len(self.stream_schema_message['key_properties']) > 0:
-            query = self.update_from_temp_table(temp_table)
-        else:
-            query = self.insert_from_temp_table(temp_table)
+        # if len(self.stream_schema_message['key_properties']) > 0: # primary keys
+        #     query = self.update_from_temp_table(temp_table)
+        # else:
+        #     query = self.insert_from_temp_table(temp_table)
+        query = self.insert_from_temp_table(temp_table)
+        
         drop_temp_query = self.drop_temp_table(temp_table)
 
         results = self.query([query, drop_temp_query])
@@ -582,10 +584,11 @@ class DbSync:
             grant_method(schema, grantees)
 
     def delete_rows(self, stream):
-        table = self.table_name(stream, False)
-        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
-        logger.info("Deleting rows from '{}' table... {}".format(table, query))
-        logger.info("DELETE {}".format(self.query(query).result().total_rows))
+        # table = self.table_name(stream, False)
+        # query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
+        # logger.info("Deleting rows from '{}' table... {}".format(table, query))
+        # logger.info("DELETE {}".format(self.query(query).result().total_rows))
+        logger.info("Trying to delete, ignore....")
 
     def create_schema_if_not_exists(self, table_columns_cache=None):
         schema_name = self.schema_name
