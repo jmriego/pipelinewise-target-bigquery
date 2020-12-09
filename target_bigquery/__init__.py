@@ -42,7 +42,8 @@ def float_to_decimal(value):
     logger.info(value)
     logger.info(type(value))
     if isinstance(value, float):
-        return Decimal(str(value))
+        # return Decimal(str(value))
+        return 0
     if isinstance(value, list):
         return [float_to_decimal(child) for child in value]
     if isinstance(value, dict):
