@@ -238,7 +238,19 @@ def persist_lines(config, lines) -> None:
 
             stream = o['stream']
             
-            logger.info(o["schema"])
+            schema_obj = o["schema"]
+            def remove_key(container, key):
+                if type(container) is dict:
+                    if key in container:
+                        del container[key]
+                    for v in container.values():
+                        remove_key(v, key)
+                if type(container) is list:
+                    for v in container:
+                        remove_key(v, key)
+                        
+            remove_key(schema_obj, "multipleOf")
+            logger.info(schema_obj)
 
             schemas[stream] = float_to_decimal(o['schema'])
             validators[stream] = Draft4Validator(schemas[stream], format_checker=FormatChecker())
