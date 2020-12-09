@@ -39,6 +39,8 @@ MAX_TIME = (MAX_TIME - datetime.min)
 
 def float_to_decimal(value):
     """Walk the given data structure and turn all instances of float into double."""
+    logger.info(value)
+    logger.info(type(value))
     if isinstance(value, float):
         return Decimal(str(value))
     if isinstance(value, list):
