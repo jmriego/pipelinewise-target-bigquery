@@ -237,6 +237,8 @@ def persist_lines(config, lines) -> None:
                 raise Exception("Line is missing required key 'stream': {}".format(line))
 
             stream = o['stream']
+            
+            logger.info(o["schema"])
 
             schemas[stream] = float_to_decimal(o['schema'])
             validators[stream] = Draft4Validator(schemas[stream], format_checker=FormatChecker())
