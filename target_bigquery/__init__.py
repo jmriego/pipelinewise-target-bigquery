@@ -39,11 +39,9 @@ MAX_TIME = (MAX_TIME - datetime.min)
 
 def float_to_decimal(value):
     """Walk the given data structure and turn all instances of float into double."""
-    logger.info(value)
-    logger.info(type(value))
     if isinstance(value, float):
-        # return Decimal(str(value))
-        return 0
+        decimal_value = json.loads(json.dumps(value), parse_float=Decimal)
+        return decimal_value
     if isinstance(value, list):
         return [float_to_decimal(child) for child in value]
     if isinstance(value, dict):
