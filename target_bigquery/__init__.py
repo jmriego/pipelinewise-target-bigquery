@@ -40,7 +40,8 @@ MAX_TIME = (MAX_TIME - datetime.min)
 def float_to_decimal(value):
     """Walk the given data structure and turn all instances of float into double."""
     if isinstance(value, float):
-        return Decimal(str(value))
+        decimal_value = json.loads(json.dumps(value), parse_float=Decimal)
+        return decimal_value
     if isinstance(value, list):
         return [float_to_decimal(child) for child in value]
     if isinstance(value, dict):
@@ -181,7 +182,8 @@ def persist_lines(config, lines) -> None:
 
             # Validate record
             try:
-                validators[stream].validate(float_to_decimal(o['record']))
+                validate = float_to_decimal(o['record'])
+                validators[stream].validate(validate)
             except Exception as ex:
                 if type(ex).__name__ == "InvalidOperation":
                     logger.error("Data validation failed and cannot load to destination. RECORD: {}\n'multipleOf' validations that allows long precisions are not supported (i.e. with 15 digits or more). Try removing 'multipleOf' methods from JSON schema."
@@ -231,6 +233,19 @@ def persist_lines(config, lines) -> None:
                 raise Exception("Line is missing required key 'stream': {}".format(line))
 
             stream = o['stream']
+            
+            schema_obj = o["schema"]
+            def remove_key(container, key):
+                if type(container) is dict:
+                    if key in container:
+                        del container[key]
+                    for v in container.values():
+                        remove_key(v, key)
+                if type(container) is list:
+                    for v in container:
+                        remove_key(v, key)
+                        
+            remove_key(schema_obj, "multipleOf")
 
             schemas[stream] = float_to_decimal(o['schema'])
             validators[stream] = Draft4Validator(schemas[stream], format_checker=FormatChecker())
