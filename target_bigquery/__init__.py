@@ -3,49 +3,30 @@
 import argparse
 import io
 import json
+import logging
 import os
 import sys
 import copy
-import singer
 
-from fastavro import writer, reader, parse_schema
-
-from datetime import datetime, date
-import time
-from decimal import Decimal
-from tempfile import NamedTemporaryFile, mkstemp
 from typing import Dict
-from dateutil import parser
-from dateutil.parser import ParserError
 from joblib import Parallel, delayed, parallel_backend
-from jsonschema import Draft4Validator, FormatChecker
+from jsonschema import Draft7Validator, FormatChecker
+from singer import get_logger
 
+from fastavro import writer, parse_schema
+
+from tempfile import NamedTemporaryFile, mkstemp
+
+import target_bigquery.stream_utils as stream_utils
 from target_bigquery.db_sync import DbSync
 
-logger = singer.get_logger()
+LOGGER = get_logger('target_bigquery')
+logging.getLogger('bigquery.connector').setLevel(logging.WARNING)
 
 DEFAULT_BATCH_SIZE_ROWS = 100000
 DEFAULT_PARALLELISM = 0  # 0 The number of threads used to flush tables
 DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by default when flushing streams in parallel
 
-# max timestamp/datetime supported in SF, used to reset all invalid dates that are beyond this value
-MAX_TIMESTAMP = '9999-12-31 23:59:59.999999'
-MAX_TIMESTAMP = datetime.strptime(MAX_TIMESTAMP, '%Y-%m-%d %H:%M:%S.%f')
-
-# max time supported in SF, used to reset all invalid times that are beyond this value
-MAX_TIME = '23:59:59.999999'
-MAX_TIME = datetime.strptime(MAX_TIME,'%H:%M:%S.%f')
-MAX_TIME = (MAX_TIME - datetime.min)
-
-def float_to_decimal(value):
-    """Walk the given data structure and turn all instances of float into double."""
-    if isinstance(value, float):
-        return Decimal(str(value))
-    if isinstance(value, list):
-        return [float_to_decimal(child) for child in value]
-    if isinstance(value, dict):
-        return {k: float_to_decimal(v) for k, v in value.items()}
-    return value
 
 
 def add_metadata_columns_to_schema(schema_message):
@@ -65,79 +46,12 @@ def add_metadata_columns_to_schema(schema_message):
     return extended_schema_message
 
 
-def add_metadata_values_to_record(record_message, stream_to_sync):
-    """Populate metadata _sdc columns from incoming record message
-    The location of the required attributes are fixed in the stream
-    """
-    def parse_datetime(dt):
-        try:
-            # TODO: figure out why we can get _sdc_deleted_at as both datetime and string objects
-            if isinstance(dt, date):
-                return dt
-            return datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ')
-        except TypeError:
-            return None
-
-    extended_record = record_message['record']
-    extended_record['_sdc_extracted_at'] = parse_datetime(record_message['time_extracted'])
-    extended_record['_sdc_batched_at'] = datetime.now()
-    extended_record['_sdc_deleted_at'] = parse_datetime(record_message.get('record', {}).get('_sdc_deleted_at'))
-
-    return extended_record
-
-
 def emit_state(state):
     if state is not None:
         line = json.dumps(state)
-        logger.info('Emitting state {}'.format(line))
+        LOGGER.info('Emitting state {}'.format(line))
         sys.stdout.write("{}\n".format(line))
         sys.stdout.flush()
-
-
-def get_schema_names_from_config(config):
-    default_target_schema = config.get('default_target_schema')
-    schema_mapping = config.get('schema_mapping', {})
-    schema_names = []
-
-    if default_target_schema:
-        schema_names.append(default_target_schema)
-
-    if schema_mapping:
-        for source_schema, target in schema_mapping.items():
-            schema_names.append(target.get('target_schema'))
-
-    return schema_names
-
-
-def adjust_timestamps_in_record(record: Dict, schema: Dict) -> None:
-    """
-    Goes through every field that is of type date/datetime/time and if its value is out of range,
-    resets it to MAX value accordingly
-    Args:
-        record: record containing properties and values
-        schema: json schema that has types of each property
-    """
-    # creating this internal function to avoid duplicating code and too many nested blocks.
-    def reset_new_value(record: Dict, key: str, format: str):
-        try:
-            if format == 'time':
-                record[key] = parser.parse(record[key]).time()
-            else:
-                record[key] = parser.parse(record[key])
-        except ParserError:
-            record[key] = MAX_TIMESTAMP if format != 'time' else MAX_TIME
-
-    for key, value in record.items():
-        if value is not None and key in schema['properties']:
-            if 'anyOf' in schema['properties'][key]:
-                for type_dict in schema['properties'][key]['anyOf']:
-                    if 'string' in type_dict['type'] and type_dict.get('format', None) in {'date-time', 'time', 'date'}:
-                        reset_new_value(record, key, type_dict['format'])
-                        break
-            else:
-                if 'string' in schema['properties'][key]['type'] and \
-                        schema['properties'][key].get('format', None) in {'date-time', 'time', 'date'}:
-                    reset_new_value(record, key, schema['properties'][key]['format'])
 
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements
@@ -159,7 +73,7 @@ def persist_lines(config, lines) -> None:
         try:
             o = json.loads(line)
         except json.decoder.JSONDecodeError:
-            logger.error("Unable to parse:\n{}".format(line))
+            LOGGER.error("Unable to parse:\n{}".format(line))
             raise
 
         if 'type' not in o:
@@ -177,16 +91,19 @@ def persist_lines(config, lines) -> None:
             # Get schema for this record's stream
             stream = o['stream']
 
-            adjust_timestamps_in_record(o['record'], schemas[stream])
+            stream_utils.adjust_timestamps_in_record(o['record'], schemas[stream])
 
             # Validate record
-            try:
-                validators[stream].validate(float_to_decimal(o['record']))
-            except Exception as ex:
-                if type(ex).__name__ == "InvalidOperation":
-                    logger.error("Data validation failed and cannot load to destination. RECORD: {}\n'multipleOf' validations that allows long precisions are not supported (i.e. with 15 digits or more). Try removing 'multipleOf' methods from JSON schema."
-                    .format(o['record']))
-                    raise ex
+            if config.get('validate_records'):
+                try:
+                    validators[stream].validate(stream_utils.float_to_decimal(o['record']))
+                except Exception as ex:
+                    if type(ex).__name__ == "InvalidOperation":
+                        raise InvalidValidationOperationException(
+                            f"Data validation failed and cannot load to destination. RECORD: {o['record']}\n"
+                            "multipleOf validations that allows long precisions are not supported (i.e. with 15 digits"
+                            "or more) Try removing 'multipleOf' methods from JSON schema.")
+                    raise RecordValidationException(f"Record does not pass schema validation. RECORD: {o['record']}")
 
             primary_key_string = stream_to_sync[stream].record_primary_key_string(o['record'])
             if not primary_key_string:
@@ -202,7 +119,7 @@ def persist_lines(config, lines) -> None:
 
             # append record
             if config.get('add_metadata_columns') or config.get('hard_delete'):
-                records_to_load[stream][primary_key_string] = add_metadata_values_to_record(o, stream_to_sync[stream])
+                records_to_load[stream][primary_key_string] = stream_utils.add_metadata_values_to_record(o)
             else:
                 records_to_load[stream][primary_key_string] = o['record']
 
@@ -232,8 +149,8 @@ def persist_lines(config, lines) -> None:
 
             stream = o['stream']
 
-            schemas[stream] = float_to_decimal(o['schema'])
-            validators[stream] = Draft4Validator(schemas[stream], format_checker=FormatChecker())
+            schemas[stream] = stream_utils.float_to_decimal(o['schema'])
+            validators[stream] = Draft7Validator(schemas[stream], format_checker=FormatChecker())
 
             # flush records from previous stream SCHEMA
             # if same stream has been encountered again, it means the schema might have been altered
@@ -257,7 +174,7 @@ def persist_lines(config, lines) -> None:
             #  or
             #  2) Use fastsync [postgres-to-bigquery, mysql-to-bigquery, etc.]
             if config.get('primary_key_required', True) and len(o['key_properties']) == 0:
-                logger.critical("Primary key is set to mandatory but not defined in the [{}] stream".format(stream))
+                LOGGER.critical("Primary key is set to mandatory but not defined in the [{}] stream".format(stream))
                 raise Exception("key_properties field is required")
 
             key_properties[stream] = o['key_properties']
@@ -271,7 +188,7 @@ def persist_lines(config, lines) -> None:
                 stream_to_sync[stream].create_schema_if_not_exists()
                 stream_to_sync[stream].sync_table()
             except Exception as e:
-                logger.error("""
+                LOGGER.error("""
                     Cannot sync table structure in BigQuery schema: {} .
                 """.format(
                     stream_to_sync[stream].schema_name))
@@ -282,10 +199,10 @@ def persist_lines(config, lines) -> None:
             csv_files_to_load[stream] = NamedTemporaryFile(mode='w+b')
 
         elif t == 'ACTIVATE_VERSION':
-            logger.debug('ACTIVATE_VERSION message')
+            LOGGER.debug('ACTIVATE_VERSION message')
 
         elif t == 'STATE':
-            logger.debug('Setting state to {}'.format(o['value']))
+            LOGGER.debug('Setting state to {}'.format(o['value']))
             state = o['value']
 
             # Initially set flushed state
@@ -421,7 +338,7 @@ def main():
     singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     persist_lines(config, singer_messages)
 
-    logger.debug("Exiting normally")
+    LOGGER.debug("Exiting normally")
 
 
 if __name__ == '__main__':
