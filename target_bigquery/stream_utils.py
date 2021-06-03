@@ -96,10 +96,11 @@ def add_metadata_values_to_record(record_message):
             # TODO: figure out why we can get _sdc_deleted_at as both datetime and string objects
             if isinstance(dt, date):
                 return dt
-            elif 'Z' in dt:
+
+            if 'Z' in dt:
                 return datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ')
-            else:
-                return datetime.fromisoformat('+'.join(dt.split('+')[:1]))
+
+            return datetime.fromisoformat('+'.join(dt.split('+')[:1]))
         except TypeError:
             return None
 

@@ -20,6 +20,11 @@ from tempfile import NamedTemporaryFile, mkstemp
 import target_bigquery.stream_utils as stream_utils
 from target_bigquery.db_sync import DbSync
 
+from target_bigquery.exceptions import (
+    RecordValidationException,
+    InvalidValidationOperationException
+)
+
 LOGGER = get_logger('target_bigquery')
 logging.getLogger('bigquery.connector').setLevel(logging.WARNING)
 
