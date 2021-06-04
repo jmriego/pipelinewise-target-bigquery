@@ -71,7 +71,7 @@ class TestTargetBigQuery(unittest.TestCase):
             }
         }
 
-        target_bigquery.adjust_timestamps_in_record(record, schema)
+        target_bigquery.stream_utils.adjust_timestamps_in_record(record, schema)
 
         self.assertDictEqual({
             'key1': '1',
