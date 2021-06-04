@@ -1,3 +1,7 @@
+1.1.1 (2021-06-04)
+-------------------
+- Minor internal bugfixes
+
 1.1.0 (2021-05-21)
 -------------------
 - Add location BigQuery configuration
