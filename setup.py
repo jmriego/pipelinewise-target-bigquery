@@ -19,7 +19,7 @@ setup(name="pipelinewise-target-bigquery",
       py_modules=["target_bigquery"],
       install_requires=[
           'pipelinewise-singer-python==1.*',
-          'setuptools==40.3.0',
+          'setuptools==57.1.0',
           'google-cloud-bigquery==1.23.0',
           'joblib==0.13.2',
           'inflection==0.3.1',
