@@ -1,5 +1,3 @@
-- Bump `google-cloud-bigquery` from `1.23.0` to `2.20.0`
-
 1.1.1 (2021-06-04)
 -------------------
 - Minor internal bugfixes
