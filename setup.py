@@ -29,7 +29,7 @@ setup(name="pipelinewise-target-bigquery",
           "test": [
               "nose==1.3.7",
               "mock==3.0.5",
-              "pylint==2.4.2"
+              "pylint==2.9.5"
           ]
       },
       entry_points="""
