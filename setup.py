@@ -3,7 +3,7 @@
 from setuptools import setup
 
 with open('README.md') as f:
-      long_description = f.read()
+    long_description = f.read()
 
 setup(name="pipelinewise-target-bigquery",
       version="1.1.1",
@@ -19,7 +19,6 @@ setup(name="pipelinewise-target-bigquery",
       py_modules=["target_bigquery"],
       install_requires=[
           'pipelinewise-singer-python==1.*',
-          'setuptools==40.3.0',
           'google-cloud-bigquery==2.20.0',
           'joblib==0.13.2',
           'inflection==0.3.1',
@@ -27,9 +26,9 @@ setup(name="pipelinewise-target-bigquery",
       ],
       extras_require={
           "test": [
-              "nose==1.3.7",
-              "mock==3.0.5",
-              "pylint==2.4.2"
+              'pytest==6.2.1',
+              'pylint==2.6.0',
+              'pytest-cov==2.10.1',
           ]
       },
       entry_points="""
