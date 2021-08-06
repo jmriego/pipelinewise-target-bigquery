@@ -6,8 +6,7 @@ venv:
 
 pylint:
 	. ./venv/bin/activate ;\
-# TODO use pylintrc
-	pylint -d C,W,unexpected-keyword-arg,duplicate-code target_bigquery/
+	pylint -d C,W,unexpected-keyword-arg,duplicate-code target_bigquery/ # TODO use pylintrc
 
 unit_test:
 	. ./venv/bin/activate ;\
