@@ -23,26 +23,16 @@ installation instructions for [Mac](http://docs.python-guide.org/en/latest/start
 It's recommended to use a virtualenv:
 
 ```bash
-  python3 -m venv venv
-  pip install pipelinewise-target-bigquery
-```
-
-or
-
-```bash
-  python3 -m venv venv
-  . venv/bin/activate
-  pip install --upgrade pip
-  pip install .
+make venv
 ```
 
 ### To run
 
-Like any other target that's following the singer specificiation:
+Like any other target that's following the singer specification:
 
 `some-singer-tap | target-bigquery --config [config.json]`
 
-It's reading incoming messages from STDIN and using the properites in `config.json` to upload data into BigQuery.
+It's reading incoming messages from STDIN and using the properties in `config.json` to upload data into BigQuery.
 
 **Note**: To avoid version conflicts run `tap` and `targets` in separate virtual environments.
 
@@ -134,32 +124,24 @@ data only after the change.
 
 2. Install python dependencies in a virtual env and run nose unit and integration tests
 ```
-  python3 -m venv venv
-  . venv/bin/activate
-  pip install --upgrade pip
-  pip install -e ".[test]"
+make venv
 ```
 
 3. To run unit tests:
 ```
-  nosetests --where=tests/unit
+make unit_test
 ```
 
 4. To run integration tests:
 ```
-  nosetests --where=tests/integration
+make integration_test
 ```
 
 ### To run pylint:
 
 1. Install python dependencies and run python linter
 ```
-  python3 -m venv venv
-  . venv/bin/activate
-  pip install --upgrade pip
-  pip install .
-  pip install pylint
-  pylint target_bigquery -d C,W,unexpected-keyword-arg,duplicate-code
+make venv pylint
 ```
 
 ## License
