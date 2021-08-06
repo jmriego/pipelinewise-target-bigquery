@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
+import copy
 import io
 import json
 import logging
 import os
 import sys
-import copy
 
-from typing import Dict
+from tempfile import NamedTemporaryFile, mkstemp
+from fastavro import writer, parse_schema
 from joblib import Parallel, delayed, parallel_backend
 from jsonschema import Draft7Validator, FormatChecker
 from singer import get_logger
 
-from fastavro import writer, parse_schema
-
-from tempfile import NamedTemporaryFile, mkstemp
-
-import target_bigquery.stream_utils as stream_utils
+from target_bigquery import stream_utils
 from target_bigquery.db_sync import DbSync
-
 from target_bigquery.exceptions import (
     RecordValidationException,
     InvalidValidationOperationException
@@ -201,7 +197,8 @@ def persist_lines(config, lines) -> None:
 
             row_count[stream] = 0
             total_row_count[stream] = 0
-            csv_files_to_load[stream] = NamedTemporaryFile(mode='w+b')
+            with NamedTemporaryFile(mode='w+b') as fh:
+                csv_files_to_load[stream] = fh
 
         elif t == 'ACTIVATE_VERSION':
             LOGGER.debug('ACTIVATE_VERSION message')
