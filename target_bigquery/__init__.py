@@ -63,7 +63,6 @@ def persist_lines(config, lines) -> None:
     key_properties = {}
     validators = {}
     records_to_load = {}
-    csv_files_to_load = {}
     row_count = {}
     stream_to_sync = {}
     total_row_count = {}
@@ -197,8 +196,6 @@ def persist_lines(config, lines) -> None:
 
             row_count[stream] = 0
             total_row_count[stream] = 0
-            with NamedTemporaryFile(mode='w+b') as fh:
-                csv_files_to_load[stream] = fh
 
         elif t == 'ACTIVATE_VERSION':
             LOGGER.debug('ACTIVATE_VERSION message')
