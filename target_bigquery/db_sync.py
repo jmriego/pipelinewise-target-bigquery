@@ -73,7 +73,7 @@ def bigquery_type(property_type, property_format):
 def handle_record_type(safe_name, schema_property, mode="NULLABLE"):
     fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
     if fields:
-        return SchemaField(safe_name, 'record', mode, fields=fields)
+        return SchemaField(safe_name, 'RECORD', mode, fields=fields)
     else:
         return SchemaField(safe_name, 'string', mode)
 
