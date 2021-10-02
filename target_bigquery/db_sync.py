@@ -64,8 +64,18 @@ def bigquery_type(property_type, property_format):
         return 'integer'
     elif 'boolean' in property_type:
         return 'boolean'
+    elif 'object' in property_type:
+        return 'record'
     else:
         return 'string'
+
+
+def handle_record_type(safe_name, schema_property, mode="NULLABLE"):
+    fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
+    if fields:
+        return SchemaField(safe_name, 'record', mode, fields=fields)
+    else:
+        return SchemaField(safe_name, 'string', mode)
 
 
 def column_type(name, schema_property):
@@ -83,14 +93,12 @@ def column_type(name, schema_property):
             return SchemaField(safe_name, 'string', 'NULLABLE')
         else:
             result_type = items_type
+            if result_type == "record":
+                return handle_record_type(safe_name, items_schema, "REPEATED")
             return SchemaField(safe_name, items_type, 'REPEATED')
 
     elif 'object' in property_type:
-        fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
-        if fields:
-            return SchemaField(safe_name, 'RECORD', 'NULLABLE', fields=fields)
-        else:
-            return SchemaField(safe_name, 'string', 'NULLABLE')
+        return handle_record_type(safe_name, schema_property)
 
     else:
         result_type = bigquery_type(property_type, property_format)
