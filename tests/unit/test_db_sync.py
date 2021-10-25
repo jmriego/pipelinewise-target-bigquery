@@ -47,7 +47,9 @@ class TestDBSync(unittest.TestCase):
 
     def test_column_type_mapping(self):
         """Test JSON type to BigQuery column type mappings"""
-        mapper = lambda x: db_sync.column_type('dummy', x).field_type
+        def mapper(schema_property):
+            field = db_sync.column_type('dummy', schema_property)
+            return field.field_type, field.mode
 
         # Incoming JSON schema types
         json_str = {"type": ["string"]}
@@ -63,23 +65,45 @@ class TestDBSync(unittest.TestCase):
         json_obj = {"type": ["object"]}
         json_arr = {"type": ["array"]}
         jsonb = {"type": ["null", "object"]}
+        jsonb_props = {
+            "type": ["null", "object"],
+            "properties": {
+                "prop1": json_int,
+                "prop2": json_str
+            }
+        }
+        jsonb_arr_str = {
+            "type": ["array"],
+            "items": {"type": ["string"]}
+        }
+        jsonb_arr_records = {
+            "type": ["array"],
+            "items": {
+                "type": ["object"],
+                "properties": {
+                    "prop1": json_int,
+                    "prop2": json_str
+                }
+            }
+        }
 
         # Mapping from JSON schema types ot BigQuery column types
-        self.assertEqual(mapper(json_str), 'string')
-        self.assertEqual(mapper(json_str_or_null), 'string')
-        self.assertEqual(mapper(json_dt), 'timestamp')
-        self.assertEqual(mapper(json_dt_or_null), 'timestamp')
-        self.assertEqual(mapper(json_t), 'time')
-        self.assertEqual(mapper(json_t_or_null), 'time')
-        self.assertEqual(mapper(json_num), 'numeric')
-        self.assertEqual(mapper(json_int), 'integer')
-        self.assertEqual(mapper(json_int_or_str), 'string')
-        self.assertEqual(mapper(json_bool), 'boolean')
-        self.assertEqual(mapper(json_obj), 'string')
-        self.assertEqual(mapper(json_arr), 'string')
-        self.assertEqual(mapper(jsonb), 'string')
-        # TODO: add tests for array with items
-        # TODO: add tests for record with properties
+        self.assertEqual(mapper(json_str), ('string', 'NULLABLE'))
+        self.assertEqual(mapper(json_str_or_null), ('string', 'NULLABLE'))
+        self.assertEqual(mapper(json_dt), ('timestamp', 'NULLABLE'))
+        self.assertEqual(mapper(json_dt_or_null), ('timestamp', 'NULLABLE'))
+        self.assertEqual(mapper(json_t), ('time', 'NULLABLE'))
+        self.assertEqual(mapper(json_t_or_null), ('time', 'NULLABLE'))
+        self.assertEqual(mapper(json_num), ('numeric', 'NULLABLE'))
+        self.assertEqual(mapper(json_int), ('integer', 'NULLABLE'))
+        self.assertEqual(mapper(json_int_or_str), ('string', 'NULLABLE'))
+        self.assertEqual(mapper(json_bool), ('boolean', 'NULLABLE'))
+        self.assertEqual(mapper(json_obj), ('string', 'NULLABLE'))
+        self.assertEqual(mapper(json_arr), ('string', 'NULLABLE'))
+        self.assertEqual(mapper(jsonb), ('string', 'NULLABLE'))
+        self.assertEqual(mapper(jsonb_props), ('RECORD', 'NULLABLE'))
+        self.assertEqual(mapper(jsonb_arr_str), ('string', 'REPEATED'))
+        self.assertEqual(mapper(jsonb_arr_records), ('RECORD', 'REPEATED'))
 
     def test_stream_name_to_dict(self):
         """Test identifying catalog, schema and table names from fully qualified stream and table names"""
