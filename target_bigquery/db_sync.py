@@ -92,8 +92,7 @@ def column_type(name, schema_property):
         except KeyError:
             return SchemaField(safe_name, 'string', 'NULLABLE')
         else:
-            result_type = items_type
-            if result_type == "record":
+            if items_type == "record":
                 return handle_record_type(safe_name, items_schema, "REPEATED")
             return SchemaField(safe_name, items_type, 'REPEATED')
 
