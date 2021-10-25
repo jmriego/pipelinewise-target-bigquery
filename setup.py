@@ -22,7 +22,7 @@ setup(name="pipelinewise-target-bigquery",
           'google-cloud-bigquery==2.20.0',
           'joblib==0.14.*',
           'inflection==0.3.1',
-          'fastavro==0.22.8'
+          'fastavro==1.4.6'
       ],
       extras_require={
           "test": [
