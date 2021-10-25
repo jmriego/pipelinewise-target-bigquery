@@ -76,6 +76,10 @@ class TestDBSync(unittest.TestCase):
             "type": ["array"],
             "items": {"type": ["string"]}
         }
+        jsonb_arr_unstructured = {
+            "type": ["array"],
+            "items": {"type": ["object"], "properties": {}}
+        }
         jsonb_arr_records = {
             "type": ["array"],
             "items": {
@@ -103,6 +107,7 @@ class TestDBSync(unittest.TestCase):
         self.assertEqual(mapper(jsonb), ('string', 'NULLABLE'))
         self.assertEqual(mapper(jsonb_props), ('RECORD', 'NULLABLE'))
         self.assertEqual(mapper(jsonb_arr_str), ('string', 'REPEATED'))
+        self.assertEqual(mapper(jsonb_arr_unstructured), ('string', 'REPEATED'))
         self.assertEqual(mapper(jsonb_arr_records), ('RECORD', 'REPEATED'))
 
     def test_stream_name_to_dict(self):
