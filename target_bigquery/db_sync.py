@@ -76,14 +76,17 @@ def column_type(name, schema_property):
     if 'array' in property_type:
         try:
             items_schema = schema_property['items']
-            items_type = bigquery_type(
-                             items_schema['type'],
-                             items_schema.get('format', None))
+            if 'object' in items_schema['type']:
+                fields = [column_type(col, t) for col, t in items_schema.get('properties', {}).items()]
+                return SchemaField(safe_name, 'RECORD', 'REPEATED', fields=fields)
+            else:
+                items_type = bigquery_type(
+                                    items_schema['type'],
+                                    items_schema.get('format', None))
         except KeyError:
             return SchemaField(safe_name, 'string', 'NULLABLE')
         else:
-            result_type = items_type
-            return SchemaField(safe_name, items_type, 'REPEATED')
+            return SchemaField(safe_name, result_type, 'REPEATED')
 
     elif 'object' in property_type:
         fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
@@ -403,7 +406,7 @@ class DbSync:
                  self.schema_name,
                  ),
              "name": self.stream_schema_message['stream'],
-             "fields": [column_type_avro(name, c) for name, c in self.flatten_schema.items()]} 
+             "fields": [column_type_avro(name, c) for name, c in self.flatten_schema.items()]}
 
         if re.search(pattern, schema['name']):
             schema["alias"] = schema['name']
@@ -700,7 +703,7 @@ class DbSync:
         for col, schemafield in table_columns.items():
             # this is a existing table column without the date suffix that gets added to arrays and structs
             col_without_dt_suffix = re.sub(r"[0-9]{8}_[0-9]{4}", "", col)
-                
+
             if (col_without_dt_suffix in [column, field_without_dt_suffix] and
                 self.alias_field(field, '') == self.alias_field(schemafield, '')):
                 # example: the column named ID in the stage table exists as ID__int in the final table
@@ -724,7 +727,7 @@ class DbSync:
         table = client.get_table(table_ref)  # API request
 
         schema = table.schema[:]
-        schema.append(field) 
+        schema.append(field)
         table.schema = schema
 
         logger.info('Adding column: {}'.format(field.name))
