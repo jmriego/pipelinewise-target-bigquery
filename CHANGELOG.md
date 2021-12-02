@@ -1,3 +1,9 @@
+1.1.2 (2021-12-02)
+-------------------
+- bump joblib to 1.1.0 to fix issue https://github.com/transferwise/pipelinewise-target-bigquery/issues/7
+- bump test dependencies
+- remove unused code
+
 1.1.1 (2021-06-04)
 -------------------
 - Minor internal bugfixes
