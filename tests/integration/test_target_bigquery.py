@@ -477,6 +477,42 @@ class TestIntegration(unittest.TestCase):
                 'c_nested_object__nested_prop_3__multi_nested_prop_2': 'multi_value_2',
             }])
 
+    def test_repeated_records(self):
+        """Loading arrays of JSON objects."""
+        tap_lines = test_utils.get_test_tap_lines(
+            'messages-with-repeated-records.json')
+
+        # Load with default settings
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        flattened_table = query(
+            bigquery,
+            "SELECT * FROM {}.test_table_repeated_records ORDER BY c_pk".format(
+                target_schema,
+            )
+
+        )
+
+        # Structured objects should be handled as dictionaries,
+        # unstructured objects should be handled as strings.
+        self.assertEqual(
+            flattened_table,
+            [{
+                'c_pk': 1,
+                'c_array_integers': [1, 2, 3],
+                'c_array_objects': [
+                    {'nested': 1},
+                    {'nested': 2},
+                ],
+                'c_array_objects_no_props': [
+                    '{"nested": 1}',
+                    '{"nested": 2}',
+                ],
+            }])
+
     def test_column_name_change(self):
         """Tests correct renaming of bigquery columns after source change"""
         tap_lines_before_column_name_change = test_utils.get_test_tap_lines('messages-with-three-streams.json')

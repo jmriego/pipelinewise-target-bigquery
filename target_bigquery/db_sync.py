@@ -167,6 +167,11 @@ def safe_column_name(name, quotes=False):
         return '{}'.format(name).lower()
 
 
+def is_unstructured_object(props):
+    """Check if property is object and it has no properties."""
+    return 'object' in props['type'] and not props.get('properties')
+
+
 def flatten_key(k, parent_key, sep):
     full_key = parent_key + [k]
     inflected_key = full_key.copy()
@@ -426,13 +431,19 @@ class DbSync:
             result = {}
             for name, props in self.flatten_schema.items():
                 if name in flatten:
-                    if 'object' in props['type'] and not 'properties' in props:
+                    if is_unstructured_object(props):
                         result[name] = json.dumps(flatten[name])
                     # dump to string if array without items or recursive
                     elif ('array' in props['type'] and
                           (not 'items' in props
                            or '$ref' in props['items'])):
                         result[name] = json.dumps(flatten[name])
+                    # dump array elements to strings
+                    elif (
+                        'array' in props['type'] and
+                        is_unstructured_object(props.get('items', {}))
+                    ):
+                        result[name] = [json.dumps(value) for value in flatten[name]]
                     elif 'number' in props['type']:
                         if flatten[name] is None:
                             result[name] = None
