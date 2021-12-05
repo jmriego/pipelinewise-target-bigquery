@@ -479,11 +479,12 @@ class TestIntegration(unittest.TestCase):
 
     def test_repeated_records(self):
         """Loading arrays of JSON objects."""
-        tap_lines = test_utils.get_test_tap_lines(
-            'messages-with-repeated-records.json')
+        tap_lines = test_utils.get_test_tap_lines('messages-with-repeated-records.json')
+        tap_lines_modified = test_utils.get_test_tap_lines('messages-with-repeated-records-modified.json')
 
         # Load with default settings
         self.persist_lines(tap_lines)
+        self.persist_lines(tap_lines_modified)
 
         # Get loaded rows from tables
         bigquery = DbSync(self.config)
@@ -500,18 +501,35 @@ class TestIntegration(unittest.TestCase):
         # unstructured objects should be handled as strings.
         self.assertEqual(
             flattened_table,
-            [{
-                'c_pk': 1,
-                'c_array_integers': [1, 2, 3],
-                'c_array_objects': [
-                    {'nested': 1},
-                    {'nested': 2},
-                ],
-                'c_array_objects_no_props': [
-                    '{"nested": 1}',
-                    '{"nested": 2}',
-                ],
-            }])
+            [
+                {
+                    'c_pk': 1,
+                    'c_array_integers': [1, 2, 3],
+                    'c_array_integers__st': [],
+                    'c_array_objects': [
+                        {'nested': 1},
+                        {'nested': 2},
+                    ],
+                    'c_array_objects_no_props': [
+                        '{"nested": 1}',
+                        '{"nested": 2}',
+                    ],
+                },
+                {
+                    'c_pk': 2,
+                    'c_array_integers': [],
+                    'c_array_integers__st': ["1", "2", "3"],
+                    'c_array_objects': [
+                        {'nested': 1},
+                        {'nested': 2},
+                    ],
+                    'c_array_objects_no_props': [
+                        '{"nested": 1}',
+                        '{"nested": 2}',
+                    ],
+                },
+            ]
+        )
 
     def test_column_name_change(self):
         """Tests correct renaming of bigquery columns after source change"""
