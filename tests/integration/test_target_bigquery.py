@@ -1,9 +1,9 @@
 import datetime
-from datetime import timezone
 import json
-import unittest
-import mock
 import os
+import unittest
+import unittest.mock as mock
+from datetime import timezone
 from decimal import Decimal, getcontext
 
 import target_bigquery
@@ -24,6 +24,7 @@ METADATA_COLUMNS = [
 def query(bigquery, query):
     result = bigquery.query(query)
     return [dict(row.items()) for row in result]
+
 
 class TestIntegration(unittest.TestCase):
     """
