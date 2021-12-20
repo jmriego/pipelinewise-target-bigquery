@@ -1,3 +1,8 @@
+1.2.0 (2021-12-20)
+-------------------
+- Allow `REPEATED` fields of type `RECORD` to be created.
+- bump pylint
+
 1.1.2 (2021-12-02)
 -------------------
 - bump joblib to 1.1.0 to fix issue https://github.com/transferwise/pipelinewise-target-bigquery/issues/7
