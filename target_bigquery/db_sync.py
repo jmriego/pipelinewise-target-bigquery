@@ -64,8 +64,18 @@ def bigquery_type(property_type, property_format):
         return 'integer'
     elif 'boolean' in property_type:
         return 'boolean'
+    elif 'object' in property_type:
+        return 'record'
     else:
         return 'string'
+
+
+def handle_record_type(safe_name, schema_property, mode="NULLABLE"):
+    fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
+    if fields:
+        return SchemaField(safe_name, 'RECORD', mode, fields=fields)
+    else:
+        return SchemaField(safe_name, 'string', mode)
 
 
 def column_type(name, schema_property):
@@ -82,15 +92,12 @@ def column_type(name, schema_property):
         except KeyError:
             return SchemaField(safe_name, 'string', 'NULLABLE')
         else:
-            result_type = items_type
+            if items_type == "record":
+                return handle_record_type(safe_name, items_schema, "REPEATED")
             return SchemaField(safe_name, items_type, 'REPEATED')
 
     elif 'object' in property_type:
-        fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
-        if fields:
-            return SchemaField(safe_name, 'RECORD', 'NULLABLE', fields=fields)
-        else:
-            return SchemaField(safe_name, 'string', 'NULLABLE')
+        return handle_record_type(safe_name, schema_property)
 
     else:
         result_type = bigquery_type(property_type, property_format)
@@ -158,6 +165,11 @@ def safe_column_name(name, quotes=False):
         return '`{}`'.format(name).lower()
     else:
         return '{}'.format(name).lower()
+
+
+def is_unstructured_object(props):
+    """Check if property is object and it has no properties."""
+    return 'object' in props['type'] and not props.get('properties')
 
 
 def flatten_key(k, parent_key, sep):
@@ -419,13 +431,19 @@ class DbSync:
             result = {}
             for name, props in self.flatten_schema.items():
                 if name in flatten:
-                    if 'object' in props['type'] and not 'properties' in props:
+                    if is_unstructured_object(props):
                         result[name] = json.dumps(flatten[name])
                     # dump to string if array without items or recursive
                     elif ('array' in props['type'] and
                           (not 'items' in props
                            or '$ref' in props['items'])):
                         result[name] = json.dumps(flatten[name])
+                    # dump array elements to strings
+                    elif (
+                        'array' in props['type'] and
+                        is_unstructured_object(props.get('items', {}))
+                    ):
+                        result[name] = [json.dumps(value) for value in flatten[name]]
                     elif 'number' in props['type']:
                         if flatten[name] is None:
                             result[name] = None

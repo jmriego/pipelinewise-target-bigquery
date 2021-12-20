@@ -1,9 +1,9 @@
 import datetime
-from datetime import timezone
 import json
-import unittest
-import mock
 import os
+import unittest
+import unittest.mock as mock
+from datetime import timezone
 from decimal import Decimal, getcontext
 
 import target_bigquery
@@ -24,6 +24,7 @@ METADATA_COLUMNS = [
 def query(bigquery, query):
     result = bigquery.query(query)
     return [dict(row.items()) for row in result]
+
 
 class TestIntegration(unittest.TestCase):
     """
@@ -475,6 +476,60 @@ class TestIntegration(unittest.TestCase):
                 'c_nested_object__nested_prop_3__multi_nested_prop_1': 'multi_value_1',
                 'c_nested_object__nested_prop_3__multi_nested_prop_2': 'multi_value_2',
             }])
+
+    def test_repeated_records(self):
+        """Loading arrays of JSON objects."""
+        tap_lines = test_utils.get_test_tap_lines('messages-with-repeated-records.json')
+        tap_lines_modified = test_utils.get_test_tap_lines('messages-with-repeated-records-modified.json')
+
+        # Load with default settings
+        self.persist_lines(tap_lines)
+        self.persist_lines(tap_lines_modified)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        flattened_table = query(
+            bigquery,
+            "SELECT * FROM {}.test_table_repeated_records ORDER BY c_pk".format(
+                target_schema,
+            )
+
+        )
+
+        # Structured objects should be handled as dictionaries,
+        # unstructured objects should be handled as strings.
+        self.assertEqual(
+            flattened_table,
+            [
+                {
+                    'c_pk': 1,
+                    'c_array_integers': [1, 2, 3],
+                    'c_array_integers__st': [],
+                    'c_array_objects': [
+                        {'nested': 1},
+                        {'nested': 2},
+                    ],
+                    'c_array_objects_no_props': [
+                        '{"nested": 1}',
+                        '{"nested": 2}',
+                    ],
+                },
+                {
+                    'c_pk': 2,
+                    'c_array_integers': [],
+                    'c_array_integers__st': ["1", "2", "3"],
+                    'c_array_objects': [
+                        {'nested': 1},
+                        {'nested': 2},
+                    ],
+                    'c_array_objects_no_props': [
+                        '{"nested": 1}',
+                        '{"nested": 2}',
+                    ],
+                },
+            ]
+        )
 
     def test_column_name_change(self):
         """Tests correct renaming of bigquery columns after source change"""
