@@ -359,7 +359,7 @@ class TestIntegration(unittest.TestCase):
         bigquery = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
         getcontext().prec = PRECISION
-        table_bad_decimals = query(bigquery, 
+        table_bad_decimals = query(bigquery,
             "SELECT * FROM {}.test_table_bad_decimals ORDER BY c_pk".format(target_schema))
 
         self.assertEqual(
@@ -382,7 +382,7 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         bigquery = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_non_db_friendly_columns = query(bigquery, 
+        table_non_db_friendly_columns = query(bigquery,
             "SELECT * FROM {}.`full` ORDER BY c_pk".format(target_schema))
 
         self.assertEqual(
@@ -401,7 +401,7 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         bigquery = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        table_non_db_friendly_columns = query(bigquery, 
+        table_non_db_friendly_columns = query(bigquery,
             "SELECT * FROM {}.test_table_non_db_friendly_columns ORDER BY c_pk".format(target_schema))
 
         self.assertEqual(
@@ -460,7 +460,7 @@ class TestIntegration(unittest.TestCase):
         # Get loaded rows from tables
         bigquery = DbSync(self.config)
         target_schema = self.config.get('default_target_schema', '')
-        flattened_table = query(bigquery, 
+        flattened_table = query(bigquery,
             "SELECT * FROM {}.test_table_nested_schema ORDER BY c_pk".format(target_schema))
 
         # Should be flattened columns
@@ -784,3 +784,18 @@ class TestIntegration(unittest.TestCase):
 
         # Every table should be loaded correctly
         self.assert_logical_streams_are_in_bigquery(True)
+
+    @mock.patch('target_bigquery.emit_state')
+    def test_flush_streams_based_on_batch_wait_limit(self, mock_emit_state):
+        """Tests logical streams from pg with inserts, updates and deletes"""
+        tap_lines = test_utils.get_test_tap_lines('messages-pg-logical-streams.json')
+
+        mock_emit_state.get.return_value = None
+
+        self.config['hard_delete'] = True
+        self.config['batch_size_rows'] = 1000
+        self.config['batch_wait_limit_seconds'] = 0.1
+        self.persist_lines(tap_lines)
+
+        self.assert_logical_streams_are_in_bigquery(True)
+        self.assertGreater(mock_emit_state.call_count, 1, 'Expecting multiple flushes')
