@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import sys
-from multiprocessing import Pool
+from multiprocessing.pool import ThreadPool as Pool
 
 from tempfile import mkstemp
 from fastavro import writer, parse_schema
