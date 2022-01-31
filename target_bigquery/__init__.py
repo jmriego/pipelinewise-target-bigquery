@@ -27,6 +27,7 @@ logging.getLogger('bigquery.connector').setLevel(logging.WARNING)
 DEFAULT_BATCH_SIZE_ROWS = 100000
 DEFAULT_PARALLELISM = 0  # 0 The number of threads used to flush tables
 DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by default when flushing streams in parallel
+DEFAULT_HARD_DELETE = False
 
 
 
@@ -67,6 +68,8 @@ def persist_lines(config, lines) -> None:
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get('batch_size_rows', DEFAULT_BATCH_SIZE_ROWS)
+    default_hard_delete = config.get('hard_delete', DEFAULT_HARD_DELETE)
+    hard_delete_mapping = config.get('hard_delete_mapping', {})
 
     # Loop over lines from stdin
     for line in lines:
@@ -118,7 +121,7 @@ def persist_lines(config, lines) -> None:
                 total_row_count[stream] += 1
 
             # append record
-            if config.get('add_metadata_columns') or config.get('hard_delete'):
+            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
                 records_to_load[stream][primary_key_string] = stream_utils.add_metadata_values_to_record(o)
             else:
                 records_to_load[stream][primary_key_string] = o['record']
@@ -179,7 +182,7 @@ def persist_lines(config, lines) -> None:
 
             key_properties[stream] = o['key_properties']
 
-            if config.get('add_metadata_columns') or config.get('hard_delete'):
+            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
                 stream_to_sync[stream] = DbSync(config, add_metadata_columns_to_schema(o))
             else:
                 stream_to_sync[stream] = DbSync(config, o)
@@ -244,6 +247,8 @@ def flush_streams(
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
+    default_hard_delete = config.get("hard_delete", DEFAULT_HARD_DELETE)
+    hard_delete_mapping = config.get("hard_delete_mapping", {})
 
     # Parallelism 0 means auto parallelism:
     #
@@ -270,7 +275,7 @@ def flush_streams(
             records_to_load=streams[stream],
             row_count=row_count,
             db_sync=stream_to_sync[stream],
-            delete_rows=config.get('hard_delete')
+            delete_rows=hard_delete_mapping.get(stream, default_hard_delete)
         ) for stream in streams_to_flush)
 
     # reset flushed stream records to empty to avoid flushing same records
