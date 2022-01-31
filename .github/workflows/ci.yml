@@ -18,6 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v0.2.0
+        with:
+          service_account_key: ${{ secrets.GCP_PIPELINEWISE_SA }}
+          export_default_credentials: true
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
@@ -32,8 +38,9 @@ jobs:
       - name: Unit Tests
         run: make unit_test
 
-      # Integration test currently turned off
-#      - name: Integration Tests
-#        env:
-#          LOGGING_CONF_FILE: ./sample_logging.conf
-#        run: make integration_test
+      - name: Integration Tests
+        env:
+          LOGGING_CONF_FILE: ./sample_logging.conf
+          TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
+          TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}
+        run: make integration_test
