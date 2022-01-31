@@ -13,6 +13,7 @@ jobs:
     strategy:
       matrix:
         python-version: [ 3.9 ]
+    concurrency: pipelinewise-target-bigquery
 
     steps:
       - name: Checkout repository
