@@ -43,4 +43,5 @@ jobs:
           LOGGING_CONF_FILE: ./sample_logging.conf
           TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
           TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}
+          TARGET_BIGQUERY_LOCATION: ${{ secrets.TARGET_BIGQUERY_LOCATION }}
         run: make integration_test

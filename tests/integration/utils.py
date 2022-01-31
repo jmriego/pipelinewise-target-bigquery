@@ -14,6 +14,7 @@ def get_db_config():
     # Snowflake instance
     config['project_id'] = os.environ.get('TARGET_BIGQUERY_PROJECT')
     config['default_target_schema'] = os.environ.get("TARGET_BIGQUERY_SCHEMA")
+    config['location'] = os.environ.get("TARGET_BIGQUERY_LOCATION")
 
     # --------------------------------------------------------------------------
     # The following variables needs to be empty.

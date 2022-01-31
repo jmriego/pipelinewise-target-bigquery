@@ -121,6 +121,7 @@ data only after the change.
   export GOOGLE_APPLICATION_CREDENTIALS=<credentials-json-file>
   export TARGET_BIGQUERY_PROJECT=<bigquery project to run your tests on>
   export TARGET_BIGQUERY_SCHEMA=<temporary schema for running the tests>
+  export TARGET_BIGQUERY_LOCATION=<location for running the tests>
 ```
 
 2. Install python dependencies in a virtual env and run nose unit and integration tests
