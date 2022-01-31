@@ -13,10 +13,9 @@ class TestTargetBigQuery(unittest.TestCase):
     def setUp(self):
         self.config = {}
 
-    @patch('target_bigquery.NamedTemporaryFile')
     @patch('target_bigquery.flush_streams')
     @patch('target_bigquery.DbSync')
-    def test_persist_lines_with_40_records_and_batch_size_of_20_expect_flushing_once(self, dbSync_mock, flush_streams_mock, temp_file_mock):
+    def test_persist_lines_with_40_records_and_batch_size_of_20_expect_flushing_once(self, dbSync_mock, flush_streams_mock):
         self.config['batch_size_rows'] = 20
         self.config['flush_all_streams'] = True
 

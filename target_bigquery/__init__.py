@@ -10,7 +10,7 @@ import os
 import sys
 from multiprocessing.pool import ThreadPool as Pool
 
-from tempfile import NamedTemporaryFile, mkstemp
+from tempfile import mkstemp
 from fastavro import writer, parse_schema
 from jsonschema import Draft7Validator, FormatChecker
 from singer import get_logger

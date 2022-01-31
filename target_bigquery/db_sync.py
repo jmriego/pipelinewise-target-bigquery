@@ -1,7 +1,6 @@
 import json
 import sys
 import singer
-import collections
 import inflection
 import re
 import itertools
@@ -13,7 +12,7 @@ from typing import MutableMapping
 from google.cloud import bigquery
 
 from google.cloud.bigquery import SchemaField
-from google.cloud.exceptions import NotFound, Conflict
+from google.cloud.exceptions import Conflict
 
 
 logger = singer.get_logger()
