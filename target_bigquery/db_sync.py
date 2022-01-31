@@ -287,6 +287,10 @@ class DbSync:
             logger.error("Invalid configuration:\n   * {}".format('\n   * '.join(config_errors)))
             sys.exit(1)
 
+        project_id = self.connection_config['project_id']
+        location = self.connection_config.get('location', None)
+        self.client = bigquery.Client(project=project_id, location=location)
+
         self.schema_name = None
         self.grantees = None
 
@@ -344,12 +348,6 @@ class DbSync:
             self.flatten_schema = flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
             self.renamed_columns = {}
 
-
-    def open_connection(self):
-        project_id = self.connection_config['project_id']
-        location = self.connection_config.get('location', None)
-        return bigquery.Client(project=project_id, location=location)
-
     def query(self, query, params=[]):
         def to_query_parameter(value):
             if isinstance(value, int):
@@ -372,9 +370,8 @@ class DbSync:
         else:
             queries = [query]
 
-        client = self.open_connection()
         logger.info("TARGET_BIGQUERY - Running query: {}".format(query))
-        query_job = client.query(';\n'.join(queries), job_config=job_config)
+        query_job = self.client.query(';\n'.join(queries), job_config=job_config)
         query_job.result()
 
         return query_job
@@ -462,7 +459,6 @@ class DbSync:
         logger.info("Loading {} rows into '{}'".format(count, self.table_name(stream, False)))
 
         project_id = self.connection_config['project_id']
-        client = self.open_connection()
         # TODO: make temp table creation and DML atomic with merge
         temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
 
@@ -477,7 +473,7 @@ class DbSync:
         job_config.source_format = bigquery.SourceFormat.AVRO
         job_config.use_avro_logical_types = True
         job_config.write_disposition = 'WRITE_TRUNCATE'
-        job = client.load_table_from_file(f, table_ref, job_config=job_config)
+        job = self.client.load_table_from_file(f, table_ref, job_config=job_config)
         job.result()
 
         if len(self.stream_schema_message['key_properties']) > 0:
@@ -583,8 +579,7 @@ class DbSync:
         if is_temporary:
             table.expires = datetime.datetime.now() + datetime.timedelta(days=1)
 
-        client = self.open_connection()
-        client.create_table(table)
+        self.client.create_table(table)
 
     def grant_usage_on_schema(self, schema_name, grantee):
         query = "GRANT USAGE ON SCHEMA {} TO GROUP {}".format(schema_name, grantee)
@@ -614,11 +609,10 @@ class DbSync:
         schema_name = self.schema_name
         temp_schema = self.connection_config.get('temp_schema', self.schema_name)
         project_id = self.connection_config['project_id']
-        client = self.open_connection()
 
         for schema in set([schema_name, temp_schema]):
             try:
-                client.create_dataset(schema)
+                self.client.create_dataset(bigquery.DatasetReference(project_id, schema))
                 logger.info("Schema '{}' does not exist. Creating...".format(schema))
                 self.grant_privilege(schema, self.grantees, self.grant_usage_on_schema)
             except Conflict:
@@ -632,11 +626,10 @@ class DbSync:
         return SchemaField.from_api_repr(api_repr)
 
     def get_table_columns(self, table_name):
-        client = self.open_connection()
         project_id = self.connection_config['project_id']
         table_name = self.table_name(table_name, without_schema=True)
         table_ref = bigquery.Dataset(f'{project_id}.{self.schema_name}').table(table_name)
-        table = client.get_table(table_ref)  # API request
+        table = self.client.get_table(table_ref)  # API request
 
         return {field.name: field for field in table.schema}
 
@@ -708,7 +701,6 @@ class DbSync:
             self.renamed_columns[column] = field_with_type_suffix
 
     def add_columns(self, fields, stream):
-        client = self.open_connection()
         project_id = self.connection_config['project_id']
         table_name = self.table_name(stream, without_schema=True)
 
@@ -716,14 +708,14 @@ class DbSync:
             bigquery.DatasetReference(project_id, self.schema_name)
         ).table(table_name)
 
-        table = client.get_table(table_ref)  # API request
+        table = self.client.get_table(table_ref)  # API request
 
         schema = table.schema[:]
         schema.extend(fields)
         table.schema = schema
 
         logger.info('Adding columns: {}'.format([field.name for field in fields]))
-        client.update_table(table, ['schema'])  # API request
+        self.client.update_table(table, ['schema'])  # API request
 
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
