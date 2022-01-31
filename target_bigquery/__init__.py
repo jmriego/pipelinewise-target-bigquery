@@ -8,10 +8,10 @@ import json
 import logging
 import os
 import sys
+from multiprocessing import Pool
 
 from tempfile import NamedTemporaryFile, mkstemp
 from fastavro import writer, parse_schema
-from joblib import Parallel, delayed, parallel_backend
 from jsonschema import Draft7Validator, FormatChecker
 from singer import get_logger
 
@@ -277,21 +277,43 @@ def flush_streams(
     if filter_streams:
         streams_to_flush = filter_streams
     else:
-        streams_to_flush = streams.keys()
+        streams_to_flush = list(streams.keys())
 
-    # Single-host, thread-based parallelism
-    with parallel_backend('threading', n_jobs=parallelism):
-        Parallel()(delayed(load_stream_batch)(
-            stream=stream,
-            records_to_load=streams[stream],
+    if len(streams_to_flush) > 1:
+        # Single-host, process-based parallelism to avoid the dreaded GIL.
+        with Pool(parallelism) as pool:
+            jobs = []
+            for stream in streams_to_flush:
+                jobs.append(
+                    pool.apply_async(
+                        load_stream_batch,
+                        kwds={
+                            'stream': stream,
+                            'records_to_load': streams[stream],
+                            'row_count': row_count,
+                            'db_sync': stream_to_sync[stream],
+                            'delete_rows': config.get('hard_delete'),
+                        },
+                    )
+                )
+            for future in jobs:
+                future.get()
+    else:
+        # If we only have one stream to sync let's not introduce overhead.
+        # for stream in streams_to_flush:
+        load_stream_batch(
+            stream=streams_to_flush[0],
+            records_to_load=streams[streams_to_flush[0]],
             row_count=row_count,
-            db_sync=stream_to_sync[stream],
+            db_sync=stream_to_sync[streams_to_flush[0]],
             delete_rows=config.get('hard_delete')
-        ) for stream in streams_to_flush)
+        )
 
     # reset flushed stream records to empty to avoid flushing same records
+    # reset row count for flushed streams
     for stream in streams_to_flush:
         streams[stream] = {}
+        row_count[stream] = 0
 
         # Update flushed streams
         if filter_streams:
@@ -319,9 +341,6 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
         # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
         if delete_rows:
             db_sync.delete_rows(stream)
-
-        # reset row count for the current stream
-        row_count[stream] = 0
 
 
 def flush_records(stream, records_to_load, row_count, db_sync):
