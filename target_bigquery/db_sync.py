@@ -1,7 +1,6 @@
 import json
 import sys
 import singer
-import inflection
 import re
 import itertools
 import time
@@ -170,12 +169,16 @@ def is_unstructured_object(props):
     return 'object' in props['type'] and not props.get('properties')
 
 
+def camelize(string):
+    return re.sub(r"(?:^|_)(.)", lambda m: m.group(1).upper(), string)
+
+
 def flatten_key(k, parent_key, sep):
     full_key = parent_key + [k]
     inflected_key = full_key.copy()
     reducer_index = 0
     while len(sep.join(inflected_key)) >= 255 and reducer_index < len(inflected_key):
-        reduced_key = re.sub(r'[a-z]', '', inflection.camelize(inflected_key[reducer_index]))
+        reduced_key = re.sub(r'[a-z]', '', camelize(inflected_key[reducer_index]))
         inflected_key[reducer_index] = \
             (reduced_key if len(reduced_key) > 1 else inflected_key[reducer_index][0:3]).lower()
         reducer_index += 1
