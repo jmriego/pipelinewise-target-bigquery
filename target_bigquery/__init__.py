@@ -43,6 +43,7 @@ def add_metadata_columns_to_schema(schema_message):
                                                                           'format': 'date-time'}
     extended_schema_message['schema']['properties']['_sdc_deleted_at'] = {'type': ['null', 'string'],
                                                                           'format': 'date-time'}
+    extended_schema_message['schema']['properties']['_sdc_table_version'] = {'type': ['null', 'integer']}
 
     return extended_schema_message
 
@@ -198,7 +199,17 @@ def persist_lines(config, lines) -> None:
             total_row_count[stream] = 0
 
         elif t == 'ACTIVATE_VERSION':
-            LOGGER.debug('ACTIVATE_VERSION message')
+            if config.get('add_metadata_columns') or config.get('hard_delete'):
+                stream = o['stream']
+                version = o['version']
+
+                if stream in stream_to_sync:
+                    LOGGER.debug('ACTIVATE_VERSION message, clearing records with versions other than {}'.format(version))
+                    stream_to_sync[stream].activate_table_version(stream, version)
+                else:
+                    LOGGER.warn('ACTIVATE_VERSION message, unknown stream {}'.format(stream))
+            else:
+                LOGGER.debug('ACTIVATE_VERSION message - ignoring due to the lack of metadata columns')
 
         elif t == 'STATE':
             LOGGER.debug('Setting state to {}'.format(o['value']))

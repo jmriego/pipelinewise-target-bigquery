@@ -614,6 +614,12 @@ class DbSync:
         logger.info("Deleting rows from '{}' table... {}".format(table, query))
         logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
+    def activate_table_version(self, stream, version):
+        table = self.table_name(stream, False)
+        query = "DELETE FROM {} WHERE _sdc_table_version != {}".format(table, version)
+        logger.info("Removing rows from previous versions from '{}' table... {}".format(table, query))
+        logger.info("DELETE {}".format(self.query(query).result().total_rows))
+
     def create_schema_if_not_exists(self, table_columns_cache=None):
         schema_name = self.schema_name
         temp_schema = self.connection_config.get('temp_schema', self.schema_name)

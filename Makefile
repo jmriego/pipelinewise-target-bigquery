@@ -1,3 +1,5 @@
+.PHONY: venv pylint unit_test integration_test
+
 venv:
 	python3 -m venv venv ;\
 	. ./venv/bin/activate ;\
