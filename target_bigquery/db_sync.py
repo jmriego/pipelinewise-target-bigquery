@@ -1,6 +1,7 @@
 import json
 import sys
 import singer
+from collections.abc import MutableMapping
 import re
 import itertools
 import time
