@@ -247,16 +247,18 @@ class TestDBSync(unittest.TestCase):
         # NO FLATTENING - Record with simple properties should be a plain dictionary
         self.assertEqual(flatten_record(not_nested_record), not_nested_record)
 
+        # Include some uppercase and hyphens in nested keys to test that flatten_record
+        # fixes the key names recursively in all dicts to match schema
         nested_record = {
             "c_pk": 1,
             "c_varchar": "1",
-            "c_int": 1,
+            "C-Int": 1,
             "c_obj": {
-                "nested_prop1": "value_1",
-                "nested_prop2": "value_2",
-                "nested_prop3": {
-                    "multi_nested_prop1": "multi_value_1",
-                    "multi_nested_prop2": "multi_value_2",
+                "Nested-Prop1": "value_1",
+                "Nested-Prop2": "value_2",
+                "Nested-Prop3": {
+                    "multi_Nested-Prop1": "multi_value_1",
+                    "multi_Nested-Prop2": "multi_value_2",
                 }}}
 
         # NO FLATTENING - No flattening (default)

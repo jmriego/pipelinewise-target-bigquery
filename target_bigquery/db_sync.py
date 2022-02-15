@@ -230,7 +230,11 @@ def flatten_record(d, parent_key=[], sep='__', level=0, max_level=0):
         if isinstance(v, MutableMapping) and level < max_level:
             items.extend(flatten_record(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
         else:
-            items.append((new_key, v if type(v) is list or type(v) is dict else v))
+            if type(v) is dict:
+                # Need to fix the keys of nested dicts, lowercase etc
+                items.append((new_key, flatten_record(v, level = 0, max_level=0)))
+            else:
+                items.append((new_key, v))
     return dict(items)
 
 
