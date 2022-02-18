@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 
-from tempfile import NamedTemporaryFile, mkstemp
+from tempfile import mkstemp
 from fastavro import writer, parse_schema
 from joblib import Parallel, delayed, parallel_backend
 from jsonschema import Draft7Validator, FormatChecker

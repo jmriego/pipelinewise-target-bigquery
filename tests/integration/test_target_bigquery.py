@@ -38,8 +38,7 @@ class TestIntegration(unittest.TestCase):
 
         # Drop target schema
         if self.config['default_target_schema']:
-            client = bigquery.open_connection()
-            client.delete_dataset(
+            bigquery.client.delete_dataset(
                 self.config['default_target_schema'],
                 delete_contents=True,
                 not_found_ok=True)
