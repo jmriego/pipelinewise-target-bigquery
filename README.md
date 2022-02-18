@@ -1,4 +1,5 @@
 # pipelinewise-target-bigquery
+random dummy change
 
 [![PyPI version](https://badge.fury.io/py/pipelinewise-target-bigquery.svg)](https://badge.fury.io/py/pipelinewise-target-bigquery)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pipelinewise-target-bigquery.svg)](https://pypi.org/project/pipelinewise-target-bigquery/)
