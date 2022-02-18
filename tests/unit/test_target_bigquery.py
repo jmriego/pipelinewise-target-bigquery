@@ -1,8 +1,9 @@
 import unittest
 import os
+import itertools
 
+from datetime import datetime, timedelta
 from unittest.mock import patch
-import datetime
 
 import target_bigquery
 
@@ -25,7 +26,7 @@ class TestTargetBigQuery(unittest.TestCase):
         instance.create_schema_if_not_exists.return_value = None
         instance.sync_table.return_value = None
 
-        flush_streams_mock.return_value = '{"currently_syncing": null}'
+        flush_streams_mock.return_value = {"currently_syncing": None}, datetime.utcnow()
 
         target_bigquery.persist_lines(self.config, lines)
 
@@ -74,9 +75,53 @@ class TestTargetBigQuery(unittest.TestCase):
 
         self.assertDictEqual({
             'key1': '1',
-            'key2':  datetime.datetime(2030, 1, 22, 0, 0),
-            'key3': datetime.datetime(9999, 12, 31, 23, 59, 59, 999999),
-            'key4': datetime.timedelta(693595, 86399, 999999),
+            'key2':  datetime(2030, 1, 22, 0, 0),
+            'key3': datetime(9999, 12, 31, 23, 59, 59, 999999),
+            'key4': timedelta(693595, 86399, 999999),
             'key5': 'I\'m good',
             'key6': None
         }, record)
+
+    @patch('target_bigquery.datetime')
+    @patch('target_bigquery.flush_streams')
+    @patch('target_bigquery.DbSync')
+    def test_persist_40_records_with_batch_wait_limit(self, dbSync_mock, flush_streams_mock, dateTime_mock):
+
+        start_time = datetime(2021, 4, 6, 0, 0, 0)
+        increment = 11
+        counter = itertools.count()
+
+        # Move time forward by {{increment}} seconds every time utcnow() is called
+        dateTime_mock.utcnow.side_effect = lambda: start_time + timedelta(seconds=increment * next(counter))
+
+        self.config['batch_size_rows'] = 100
+        self.config['batch_wait_limit_seconds'] = 10
+        self.config['flush_all_streams'] = True
+
+        # Expecting 40 records
+        with open(f'{os.path.dirname(__file__)}/resources/logical-streams.json', 'r') as f:
+            lines = f.readlines()
+
+        instance = dbSync_mock.return_value
+        instance.create_schema_if_not_exists.return_value = None
+        instance.sync_table.return_value = None
+
+        def flush_streams_mock_func(
+            streams,
+            *_,
+            filter_streams=None
+        ):
+            if filter_streams:
+                streams_to_flush = filter_streams
+            else:
+                streams_to_flush = streams.keys()
+
+            flushed_timestamps = {stream: dateTime_mock.utcnow() for stream in streams_to_flush}
+            return {"currently_syncing": None}, flushed_timestamps
+
+        flush_streams_mock.side_effect = flush_streams_mock_func
+
+        target_bigquery.persist_lines(self.config, lines)
+
+        # Expecting flush after every records + 1 at the end
+        assert flush_streams_mock.call_count == 41
