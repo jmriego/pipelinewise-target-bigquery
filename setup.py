@@ -21,7 +21,7 @@ setup(name="pipelinewise-target-bigquery",
           'pipelinewise-singer-python==1.*',
           'google-cloud-bigquery>=2.20.0,<=2.32.0',
           'joblib==1.1.0',
-          'inflection==0.3.1',
+          'inflection==0.5.1',
           'fastavro>=0.22.8,<=1.4.9'
       ],
       extras_require={
