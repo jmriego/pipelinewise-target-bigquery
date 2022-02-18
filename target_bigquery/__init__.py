@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from datetime import datetime, timedelta
 import copy
 import io
 import json
@@ -65,14 +66,26 @@ def persist_lines(config, lines) -> None:
     validators = {}
     records_to_load = {}
     row_count = {}
+    flush_timestamp = {}
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get('batch_size_rows', DEFAULT_BATCH_SIZE_ROWS)
     default_hard_delete = config.get('hard_delete', DEFAULT_HARD_DELETE)
     hard_delete_mapping = config.get('hard_delete_mapping', {})
+    batch_wait_limit_seconds = config.get('batch_wait_limit_seconds', None)
 
     # Loop over lines from stdin
     for line in lines:
+        # Check to see if any streams should be flushed based on time.
+        # This assumes that each individual record takes a negligible period
+        # of time to be processed.
+        streams_to_flush_timestamp = set()
+        if batch_wait_limit_seconds:
+            streams_to_flush_timestamp = {
+                stream for stream, timestamp in flush_timestamp.items()
+                if datetime.utcnow() >= timestamp + timedelta(seconds=batch_wait_limit_seconds)
+            }
+
         try:
             o = json.loads(line)
         except json.decoder.JSONDecodeError:
@@ -112,9 +125,6 @@ def persist_lines(config, lines) -> None:
             if not primary_key_string:
                 primary_key_string = 'RID-{}'.format(total_row_count[stream])
 
-            if stream not in records_to_load:
-                records_to_load[stream] = {}
-
             # increment row count only when a new PK is encountered in the current batch
             if primary_key_string not in records_to_load[stream]:
                 row_count[stream] += 1
@@ -126,15 +136,25 @@ def persist_lines(config, lines) -> None:
             else:
                 records_to_load[stream][primary_key_string] = o['record']
 
+            flush = False
             if row_count[stream] >= batch_size_rows:
+                flush = True
+                LOGGER.info("Flush triggered by batch_size_rows (%s) reached in %s",
+                             batch_size_rows, stream)
+            elif streams_to_flush_timestamp:
+                flush = True
+                LOGGER.info("Flush triggered by batch_wait_limit_seconds (%s)",
+                            batch_wait_limit_seconds)
+
+            if flush:
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 if config.get('flush_all_streams'):
                     filter_streams = None
                 else:
-                    filter_streams = [stream]
+                    filter_streams = list(streams_to_flush_timestamp | {stream})
 
                 # Flush and return a new state dict with new positions only for the flushed streams
-                flushed_state = flush_streams(
+                flushed_state, flushed_timestamps = flush_streams(
                     records_to_load,
                     row_count,
                     stream_to_sync,
@@ -142,6 +162,8 @@ def persist_lines(config, lines) -> None:
                     state,
                     flushed_state,
                     filter_streams=filter_streams)
+
+                flush_timestamp.update(flushed_timestamps)
 
                 # emit last encountered state
                 emit_state(copy.deepcopy(flushed_state))
@@ -159,7 +181,16 @@ def persist_lines(config, lines) -> None:
             # if same stream has been encountered again, it means the schema might have been altered
             # so previous records need to be flushed
             if row_count.get(stream, 0) > 0:
-                flushed_state = flush_streams(records_to_load, row_count, stream_to_sync, config, state, flushed_state)
+                if config.get('flush_all_streams'):
+                    filter_streams = None
+                else:
+                    filter_streams = list(streams_to_flush_timestamp | {stream})
+
+                flushed_state, flushed_timestamps = flush_streams(
+                    records_to_load, row_count, stream_to_sync, config, state, flushed_state, filter_streams=filter_streams
+                )
+
+                flush_timestamp.update(flushed_timestamps)
 
                 # emit latest encountered state
                 emit_state(flushed_state)
@@ -197,8 +228,10 @@ def persist_lines(config, lines) -> None:
                     stream_to_sync[stream].schema_name))
                 raise e
 
+            records_to_load[stream] = {}
             row_count[stream] = 0
             total_row_count[stream] = 0
+            flush_timestamp[stream] = datetime.utcnow()
 
         elif t == 'ACTIVATE_VERSION':
             LOGGER.debug('ACTIVATE_VERSION message')
@@ -219,7 +252,7 @@ def persist_lines(config, lines) -> None:
     # then flush all buckets.
     if sum(row_count.values()) > 0:
         # flush all streams one last time, delete records if needed, reset counts and then emit current state
-        flushed_state = flush_streams(records_to_load, row_count, stream_to_sync, config, state, flushed_state)
+        flushed_state, _ = flush_streams(records_to_load, row_count, stream_to_sync, config, state, flushed_state)
 
     # emit latest state
     emit_state(copy.deepcopy(flushed_state))
@@ -244,6 +277,7 @@ def flush_streams(
     :param flushed_state: dictionary containing updated states only when streams got flushed
     :param filter_streams: Keys of streams to flush from the streams dict. Default is every stream
     :return: State dict with flushed positions
+    :return: Dictionary with flush timestamps for each stream flushed
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
@@ -276,7 +310,7 @@ def flush_streams(
             row_count=row_count,
             db_sync=stream_to_sync[stream],
             delete_rows=hard_delete_mapping.get(stream, default_hard_delete)
-        ) for stream in streams_to_flush)
+        ) for stream in streams_to_flush if streams[stream])
 
     # reset flushed stream records to empty to avoid flushing same records
     for stream in streams_to_flush:
@@ -296,8 +330,9 @@ def flush_streams(
         else:
             flushed_state = copy.deepcopy(state)
 
+    flushed_timestamps = {stream: datetime.utcnow() for stream in streams_to_flush}
     # Return with state message with flushed positions
-    return flushed_state
+    return flushed_state, flushed_timestamps
 
 
 def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=False):
