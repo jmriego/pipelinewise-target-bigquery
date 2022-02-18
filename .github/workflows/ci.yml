@@ -33,7 +33,13 @@ jobs:
         run: make unit_test
 
       # Integration test currently turned off
-#      - name: Integration Tests
-#        env:
-#          LOGGING_CONF_FILE: ./sample_logging.conf
-#        run: make integration_test
+      - name: Integration Tests
+        run: |
+         echo "$GOOGLE_APPLICATION_CREDENTIALS" > service.json
+         export GOOGLE_APPLICATION_CREDENTIALS=service.json
+         export TARGET_BIGQUERY_SCHEMA="`echo "$TARGET_BIGQUERY_SCHEMA" | tr -d "."`"
+         make integration_test
+        env:
+         GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+         TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
+         TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}${{ matrix.python-version }}
