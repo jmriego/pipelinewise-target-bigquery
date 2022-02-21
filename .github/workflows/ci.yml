@@ -32,7 +32,7 @@ jobs:
 
       - name: Unit Tests
         run: make unit_test
-        
+
       - name: Approve
         run: echo For security reasons, all pull requests need to be approved first before running Integration tests.
 
@@ -71,3 +71,5 @@ jobs:
          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
          TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
          TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}_MR${{ github.event.number }}_${{ matrix.python-version }}
+         TARGET_BIGQUERY_GCS_BUCKET: ${{ secrets.TARGET_BIGQUERY_GCS_BUCKET }}
+         TARGET_BIGQUERY_GCS_KEY_PREFIX: ${{ secrets.TARGET_BIGQUERY_GCS_KEY_PREFIX }}
