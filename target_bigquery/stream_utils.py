@@ -86,7 +86,12 @@ def float_to_decimal(value):
         return {k: float_to_decimal(v) for k, v in value.items()}
     return value
 
-def parse_datetime(dt):
+
+def add_metadata_values_to_record(record_message):
+    """Populate metadata _sdc columns from incoming record message
+    The location of the required attributes are fixed in the stream
+    """
+    def parse_datetime(dt):
         try:
             # TODO: figure out why we can get _sdc_deleted_at as both datetime and string objects
             if isinstance(dt, date):
@@ -99,11 +104,6 @@ def parse_datetime(dt):
         except TypeError:
             return None
 
-
-def add_metadata_values_to_record(record_message):
-    """Populate metadata _sdc columns from incoming record message
-    The location of the required attributes are fixed in the stream
-    """
     extended_record = record_message['record']
     extended_record['_sdc_extracted_at'] = parse_datetime(record_message['time_extracted'])
     extended_record['_sdc_batched_at'] = datetime.now()
