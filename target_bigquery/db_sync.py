@@ -211,7 +211,7 @@ def flatten_record(d, schema, parent_key=[], sep='__', level=0, max_level=0):
     items = []
     for k, v in d.items():
         safe_key = safe_column_name(k, quotes=False)
-        new_key = flatten_key(k, parent_key, sep)
+        new_key = flatten_key(safe_key, parent_key, sep)
         key_schema = schema['properties'][k]
         if isinstance(v, MutableMapping) and level < max_level and 'properties' in key_schema:
             items.extend(flatten_record(
@@ -384,19 +384,16 @@ class DbSync:
     def record_primary_key_string(self, record):
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
-        flatten = flatten_record(record, self.stream_schema_message['schema'], max_level=self.data_flattening_max_level)
         try:
-            key_props = [str(flatten[p.lower()]) for p in self.stream_schema_message['key_properties']]
+            key_props = [str(record[p.lower()]) for p in self.stream_schema_message['key_properties']]
         except Exception as exc:
-            logger.info("Cannot find {} primary key(s) in record: {}".format(self.stream_schema_message['key_properties'], flatten))
+            logger.info("Cannot find {} primary key(s) in record: {}".format(self.stream_schema_message['key_properties'], record))
             raise exc
         return ','.join(key_props)
 
     def records_to_json(self, records, schema):
         field_map = {field.name: field for field in schema}
-        singer_schema = self.stream_schema_message['schema']
-        flattened = (flatten_record(record, singer_schema, max_level=self.data_flattening_max_level) for record in records)
-        for record in flattened:
+        for record in records:
             yield json.dumps(
                 record,
                 cls=BigQueryJSONEncoder,
