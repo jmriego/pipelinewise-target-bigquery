@@ -20,7 +20,6 @@ setup(name="pipelinewise-target-bigquery",
       install_requires=[
           'pipelinewise-singer-python>=1,<3',
           'google-cloud-bigquery>=2.20.0,<2.35.0',
-          'fastavro>=0.22.8,<=1.4.9'
       ],
       extras_require={
           "test": [
