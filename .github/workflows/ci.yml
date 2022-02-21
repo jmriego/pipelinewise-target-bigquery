@@ -1,8 +1,7 @@
 name: CI
 
 on:
-  pull_request:
-  push:
+  pull_request_target:
     branches:
       - master
 
@@ -10,20 +9,16 @@ jobs:
   lint_and_test:
     name: Linting and Testing
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         python-version: [ 3.9 ]
     concurrency: pipelinewise-target-bigquery
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v0.2.0
+      - uses: actions/checkout@v2
         with:
-          service_account_key: ${{ secrets.GCP_PIPELINEWISE_SA }}
-          export_default_credentials: true
+          ref: "refs/pull/${{ github.event.number }}/merge"
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
@@ -39,10 +34,42 @@ jobs:
       - name: Unit Tests
         run: make unit_test
 
+      - name: Approve
+        run: echo For security reasons, all pull requests need to be approved first before running Integration tests.
+
+  integration_test:
+    name: Integration Testing
+    runs-on: ubuntu-latest
+    needs:
+      - lint_and_test
+    environment:
+      name: Integrate Pull Request
+
+    strategy:
+      matrix:
+        python-version: [ 3.6, 3.7, 3.8 ]
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: "refs/pull/${{ github.event.number }}/merge"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup virtual environment
+        run: make venv
+
       - name: Integration Tests
+        run: |
+         echo "$GOOGLE_APPLICATION_CREDENTIALS" > service.json
+         export GOOGLE_APPLICATION_CREDENTIALS=service.json
+         export TARGET_BIGQUERY_SCHEMA="`echo "$TARGET_BIGQUERY_SCHEMA" | tr -d "."`"
+         make integration_test
         env:
-          LOGGING_CONF_FILE: ./sample_logging.conf
-          TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
-          TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}
-          TARGET_BIGQUERY_LOCATION: ${{ secrets.TARGET_BIGQUERY_LOCATION }}
-        run: make integration_test
+         GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_PIPELINEWISE_SA }}
+         TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
+         TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}_MR${{ github.event.number }}_${{ matrix.python-version }}
+         TARGET_BIGQUERY_LOCATION: ${{ secrets.TARGET_BIGQUERY_LOCATION }}

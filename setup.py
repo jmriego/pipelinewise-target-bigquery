@@ -18,13 +18,13 @@ setup(name="pipelinewise-target-bigquery",
       ],
       py_modules=["target_bigquery"],
       install_requires=[
-          'pipelinewise-singer-python==1.*',
-          'google-cloud-bigquery>=2.20.0,<=2.32.0',
+          'pipelinewise-singer-python>=1,<3',
+          'google-cloud-bigquery>=2.20.0,<2.35.0',
           'fastavro>=0.22.8,<=1.4.9'
       ],
       extras_require={
           "test": [
-              'pytest==6.2.5',
+              'pytest==7.0.1',
               'pylint==2.12.2',
               'pytest-cov==3.0.0',
           ]

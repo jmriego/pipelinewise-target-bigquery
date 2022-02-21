@@ -26,7 +26,7 @@ class TestTargetBigQuery(unittest.TestCase):
         instance.create_schema_if_not_exists.return_value = None
         instance.sync_table.return_value = None
 
-        flush_streams_mock.return_value = '{"currently_syncing": null}'
+        flush_streams_mock.return_value = {"currently_syncing": None}, datetime.utcnow()
 
         target_bigquery.persist_lines(self.config, lines)
 
@@ -106,7 +106,20 @@ class TestTargetBigQuery(unittest.TestCase):
         instance.create_schema_if_not_exists.return_value = None
         instance.sync_table.return_value = None
 
-        flush_streams_mock.return_value = '{"currently_syncing": null}'
+        def flush_streams_mock_func(
+            streams,
+            *_,
+            filter_streams=None
+        ):
+            if filter_streams:
+                streams_to_flush = filter_streams
+            else:
+                streams_to_flush = streams.keys()
+
+            flushed_timestamps = {stream: dateTime_mock.utcnow() for stream in streams_to_flush}
+            return {"currently_syncing": None}, flushed_timestamps
+
+        flush_streams_mock.side_effect = flush_streams_mock_func
 
         target_bigquery.persist_lines(self.config, lines)
 
