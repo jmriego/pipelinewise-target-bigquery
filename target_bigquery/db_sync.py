@@ -35,14 +35,14 @@ class BigQueryJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, (datetime.date, datetime.datetime, datetime.time)):
             return o.isoformat()
-        elif isinstance(o, Decimal):
+        if isinstance(o, Decimal):
             return str(o)
         return json.JSONEncoder.default(self, o)
 
     def _bq_format(self, o, field_type):
         if field_type == 'string' and not isinstance(o, str):
             return json.JSONEncoder.encode(self, o)
-        elif field_type == 'numeric':
+        if field_type == 'numeric':
             n = Decimal(o)
             return MAX_NUM if n > MAX_NUM else -MAX_NUM if n < -MAX_NUM else n.quantize(ALLOWED_DECIMALS)
         return o
@@ -206,6 +206,7 @@ def flatten_schema(d, parent_key=[], sep='__', level=0, max_level=0):
     return dict(sorted_items)
 
 
+# pylint: disable=too-many-arguments
 def flatten_record(d, schema, parent_key=[], sep='__', level=0, max_level=0):
     items = []
     for k, v in d.items():
@@ -403,6 +404,7 @@ class DbSync:
                 data_flattening_max_level=self.data_flattening_max_level,
             ) + '\n'
 
+    # pylint: disable=too-many-locals
     def load_records(self, records, count):
         stream_schema_message = self.stream_schema_message
         logger.info("Loading {} rows into '{}'".format(
