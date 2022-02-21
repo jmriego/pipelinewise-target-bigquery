@@ -121,7 +121,9 @@ def persist_lines(config, lines) -> None:
             if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
                 record = stream_utils.add_metadata_values_to_record(o)
             else:
-                record = stream_utils.remove_metadata_values_from_record(o)
+                record = stream_utils.remove_metadata_values_from_record(
+                    o, stream_to_sync[stream].stream_schema_message['schema']
+                )
 
             # Flatten record
             record = flatten_record(
