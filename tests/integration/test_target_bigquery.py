@@ -468,7 +468,7 @@ class TestIntegration(unittest.TestCase):
             [{
                 'c_pk': 1,
                 'c_array': '[1, 2, 3]',
-                'c_object': None,
+                'c_object': '{"key_1": "value_1"}',
                 'c_object_with_props__key_1': 'value_1',
                 'c_nested_object__nested_prop_1': 'nested_value_1',
                 'c_nested_object__nested_prop_2': 'nested_value_2',

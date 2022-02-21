@@ -86,12 +86,7 @@ def float_to_decimal(value):
         return {k: float_to_decimal(v) for k, v in value.items()}
     return value
 
-
-def add_metadata_values_to_record(record_message):
-    """Populate metadata _sdc columns from incoming record message
-    The location of the required attributes are fixed in the stream
-    """
-    def parse_datetime(dt):
+def parse_datetime(dt):
         try:
             # TODO: figure out why we can get _sdc_deleted_at as both datetime and string objects
             if isinstance(dt, date):
@@ -104,6 +99,11 @@ def add_metadata_values_to_record(record_message):
         except TypeError:
             return None
 
+
+def add_metadata_values_to_record(record_message):
+    """Populate metadata _sdc columns from incoming record message
+    The location of the required attributes are fixed in the stream
+    """
     extended_record = record_message['record']
     extended_record['_sdc_extracted_at'] = parse_datetime(record_message['time_extracted'])
     extended_record['_sdc_batched_at'] = datetime.now()
@@ -111,6 +111,15 @@ def add_metadata_values_to_record(record_message):
 
     return extended_record
 
+def remove_metadata_values_from_record(record_message):
+    """Remove any metadata _sdc columns from incoming record message
+    The location of the required attributes are fixed in the stream
+    """
+    record = record_message['record']
+    record.pop('_sdc_extracted_at', None)
+    record.pop('_sdc_batched_at', None)
+    record.pop('_sdc_deleted_at', None)
+    return record
 
 def stream_name_to_dict(stream_name, separator='-'):
     """Transform stream name string to dictionary"""

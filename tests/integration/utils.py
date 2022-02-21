@@ -15,6 +15,8 @@ def get_db_config():
     config['project_id'] = os.environ.get('TARGET_BIGQUERY_PROJECT')
     config['default_target_schema'] = os.environ.get("TARGET_BIGQUERY_SCHEMA")
     config['location'] = os.environ.get("TARGET_BIGQUERY_LOCATION")
+    config['gcs_bucket'] = os.environ.get("TARGET_BIGQUERY_GCS_BUCKET")
+    config['gcs_key_prefix'] = os.environ.get("TARGET_BIGQUERY_GCS_KEY_PREFIX")
 
     # --------------------------------------------------------------------------
     # The following variables needs to be empty.

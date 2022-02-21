@@ -10,8 +10,6 @@ import os
 import sys
 from multiprocessing.pool import ThreadPool as Pool
 
-from tempfile import mkstemp
-from fastavro import writer, parse_schema
 from jsonschema import Draft7Validator, FormatChecker
 from singer import get_logger
 
@@ -370,17 +368,8 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
 
 
 def flush_records(stream, records_to_load, row_count, db_sync):
-    parsed_schema = parse_schema(db_sync.avro_schema())
-    csv_fd, csv_file = mkstemp()
-    with open(csv_file, 'wb') as out:
-        writer(out, parsed_schema, db_sync.records_to_avro(records_to_load.values()))
-
     # Seek to the beginning of the file and load
-    with open(csv_file, 'r+b') as f:
-        db_sync.load_avro(f, row_count)
-
-    # Delete temp file
-    os.remove(csv_file)
+    db_sync.load_records(records_to_load.values(), row_count)
 
 
 def main():
