@@ -240,12 +240,20 @@ class TestDBSync(unittest.TestCase):
         flatten_record = db_sync.flatten_record
 
         empty_record = {}
+        empty_schema = {'properties': {}}
         # Empty record should be empty dict
-        self.assertEqual(flatten_record(empty_record), {})
+        self.assertEqual(flatten_record(empty_record, empty_schema), {})
 
         not_nested_record = {"c_pk": 1, "c_varchar": "1", "c_int": 1}
+        schema = {
+            "properties": {
+                "c_pk": {"type": ["null", "integer"]},
+                "c_varchar": {"type": ["null", "string"]},
+                "c_int": {"type": ["null", "integer"]},
+            },
+        }
         # NO FLATTENING - Record with simple properties should be a plain dictionary
-        self.assertEqual(flatten_record(not_nested_record), not_nested_record)
+        self.assertEqual(flatten_record(not_nested_record, schema), not_nested_record)
 
         nested_record = {
             "c_pk": 1,
@@ -259,9 +267,39 @@ class TestDBSync(unittest.TestCase):
                     "multi_nested_prop2": "multi_value_2",
                 }}}
 
+        schema = {
+            "properties": {
+                "c_pk": {"type": ["null", "integer"]},
+                "c_varchar": {"type": ["null", "string"]},
+                "c_int": {"type": ["null", "integer"]},
+                "c_obj": {
+                    "type": ["null", "object"],
+                    "properties": {
+                        "nested_prop1": {
+                            "type": ["null", "string"],
+                        },
+                        "nested_prop2": {
+                            "type": ["null", "string"],
+                        },
+                        "nested_prop3": {
+                            "type": ["null", "object"],
+                            "properties": {
+                                "multi_nested_prop1": {
+                                    "type": ["null", "string"]
+                                },
+                                "multi_nested_prop2": {
+                                    "type": ["null", "string"]
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
         # NO FLATTENING - No flattening (default)
         self.maxDiff = None
-        self.assertEqual(flatten_record(nested_record),
+        self.assertEqual(flatten_record(nested_record, schema),
                           {
                               "c_pk": 1,
                               "c_varchar": "1",
@@ -272,7 +310,7 @@ class TestDBSync(unittest.TestCase):
 
         # NO FLATTENING
         #   max_level: 0 : No flattening (default)
-        self.assertEqual(flatten_record(nested_record, max_level=0),
+        self.assertEqual(flatten_record(nested_record, schema, max_level=0),
                           {
                               "c_pk": 1,
                               "c_varchar": "1",
@@ -283,19 +321,19 @@ class TestDBSync(unittest.TestCase):
 
         # SEMI FLATTENING
         #   max_level: 1 : Semi-flattening (default)
-        self.assertEqual(flatten_record(nested_record, max_level=1),
+        self.assertEqual(flatten_record(nested_record, schema, max_level=1),
                           {
                               "c_pk": 1,
                               "c_varchar": "1",
                               "c_int": 1,
                               "c_obj__nested_prop1": "value_1",
                               "c_obj__nested_prop2": "value_2",
-                              "c_obj__nested_prop3": {"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": 
+                              "c_obj__nested_prop3": {"multi_nested_prop1": "multi_value_1", "multi_nested_prop2":
                                                      "multi_value_2"}
                           })
 
         # FLATTENING
-        self.assertEqual(flatten_record(nested_record, max_level=10),
+        self.assertEqual(flatten_record(nested_record, schema, max_level=10),
                           {
                               "c_pk": 1,
                               "c_varchar": "1",
@@ -304,4 +342,42 @@ class TestDBSync(unittest.TestCase):
                               "c_obj__nested_prop2": "value_2",
                               "c_obj__nested_prop3__multi_nested_prop1": "multi_value_1",
                               "c_obj__nested_prop3__multi_nested_prop2": "multi_value_2"
+                          })
+
+        # SEMI FLATTENING
+        # The `nested_prop3` doesn't have `properties` defined as so cannot be
+        # flattened as we don't know the set of possible keys.
+        schema = {
+            "properties": {
+                "c_pk": {"type": ["null", "integer"]},
+                "c_varchar": {"type": ["null", "string"]},
+                "c_int": {"type": ["null", "integer"]},
+                "c_obj": {
+                    "type": ["null", "object"],
+                    "properties": {
+                        "nested_prop1": {
+                            "type": ["null", "string"],
+                        },
+                        "nested_prop2": {
+                            "type": ["null", "string"],
+                        },
+                        "nested_prop3": {
+                            "type": ["null", "object"],
+                        },
+                    },
+                },
+            },
+        }
+
+        self.assertEqual(flatten_record(nested_record, schema, max_level=10),
+                          {
+                              "c_pk": 1,
+                              "c_varchar": "1",
+                              "c_int": 1,
+                              "c_obj__nested_prop1": "value_1",
+                              "c_obj__nested_prop2": "value_2",
+                              "c_obj__nested_prop3": {
+                                  "multi_nested_prop1": "multi_value_1",
+                                  "multi_nested_prop2": "multi_value_2",
+                              },
                           })

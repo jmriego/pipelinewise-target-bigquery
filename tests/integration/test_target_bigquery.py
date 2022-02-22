@@ -468,7 +468,7 @@ class TestIntegration(unittest.TestCase):
             [{
                 'c_pk': 1,
                 'c_array': '[1, 2, 3]',
-                'c_object': None,
+                'c_object': '{"key_1": "value_1"}',
                 'c_object_with_props__key_1': 'value_1',
                 'c_nested_object__nested_prop_1': 'nested_value_1',
                 'c_nested_object__nested_prop_2': 'nested_value_2',
@@ -617,7 +617,7 @@ class TestIntegration(unittest.TestCase):
         # ----------------------------------------------------------------------
         # Check rows in table_two
         # ----------------------------------------------------------------------
-        delete_time = datetime.datetime(2019, 10, 13, 14, 6, 31, 838000, tzinfo=timezone.utc)
+        delete_time = datetime.datetime(2019, 10, 13, 14, 6, 31, 838328, tzinfo=timezone.utc)
         expected_table_two = [
             {'cid': 1, 'cvarchar': "updated row", "_sdc_deleted_at": None},
             {'cid': 2, 'cvarchar': 'updated row', "_sdc_deleted_at": None},
