@@ -6,7 +6,7 @@ import itertools
 import time
 import datetime
 from decimal import Decimal, getcontext
-from typing import MutableMapping
+from typing import List, MutableMapping
 
 from google.cloud import bigquery
 
@@ -578,11 +578,11 @@ class DbSync:
         ]
 
         table = bigquery.Table(table_ref, schema=schema)
-        table.clustering_fields = primary_column_names(self.stream_schema_message)
         if is_temporary:
             table.expires = datetime.datetime.now() + datetime.timedelta(days=1)
 
         self.client.create_table(table)
+        self.update_clustering_fields(table)
 
     def grant_usage_on_schema(self, schema_name, grantee):
         query = "GRANT USAGE ON SCHEMA {} TO GROUP {}".format(schema_name, grantee)
@@ -628,19 +628,22 @@ class DbSync:
         api_repr['name'] = alias
         return SchemaField.from_api_repr(api_repr)
 
-    def get_table_columns(self, table_name):
+    def get_table(self, table_name: str) -> bigquery.Table:
         project_id = self.connection_config['project_id']
         table_name = self.table_name(table_name, without_schema=True)
-        table_ref = bigquery.Dataset(f'{project_id}.{self.schema_name}').table(table_name)
-        table = self.client.get_table(table_ref)  # API request
+        return self.client.get_table(
+            bigquery.DatasetReference(project_id, self.schema_name).table(table_name)
+        )
 
+    def get_table_columns(self, table: bigquery.Table):
         return {field.name: field for field in table.schema}
 
     def update_columns(self):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         table_name = self.table_name(stream, without_schema=True)
-        columns = self.get_table_columns(table_name)
+        table = self.get_table(table_name)
+        columns = self.get_table_columns(table)
 
         columns_to_add = [
             column_type(name, properties_schema)
@@ -648,7 +651,7 @@ class DbSync:
             if safe_column_name(name, quotes=False) not in columns
         ]
 
-        self.add_columns(columns_to_add, stream)
+        self.add_columns(table, columns_to_add)
 
         columns_to_replace = [
             column_type(name, properties_schema)
@@ -658,10 +661,20 @@ class DbSync:
         ]
 
         for field in columns_to_replace:
-            self.version_column(field, stream)
+            self.version_column(table, field)
 
+        self.update_clustering_fields(table)
 
-    def version_column(self, field, stream):
+    def update_clustering_fields(self, table: bigquery.Table) -> None:
+        new_clustering_fields = [
+            self.renamed_columns.get(c, c) for c in primary_column_names(self.stream_schema_message)
+        ]
+        if table.clustering_fields != new_clustering_fields:
+            logger.info('Updating clustering fields: {}'.format(new_clustering_fields))
+            table.clustering_fields = new_clustering_fields
+            self.client.update_table(table, ['clustering_fields'])
+
+    def version_column(self, table: bigquery.Table, field: bigquery.SchemaField) -> None:
         column = safe_column_name(field.name, quotes=False)
         col_type_suffixes = {
             'timestamp': 'ti',
@@ -684,8 +697,7 @@ class DbSync:
 
         field_without_dt_suffix = re.sub(r"[0-9]{8}_[0-9]{4}", "", field_with_type_suffix)
 
-        table_name = self.table_name(stream, without_schema=True)
-        table_columns = self.get_table_columns(table_name)
+        table_columns = self.get_table_columns(table)
 
         # check if we already have this column in the table with a name like column_name__type_suffix
         for col, schemafield in table_columns.items():
@@ -700,19 +712,10 @@ class DbSync:
         # if we didnt find a existing suitable column, create it
         if not column in self.renamed_columns:
             logger.info('Versioning column: {}'.format(field_with_type_suffix))
-            self.add_columns([self.alias_field(field, field_with_type_suffix)], stream)
+            self.add_columns(table, [self.alias_field(field, field_with_type_suffix)])
             self.renamed_columns[column] = field_with_type_suffix
 
-    def add_columns(self, fields, stream):
-        project_id = self.connection_config['project_id']
-        table_name = self.table_name(stream, without_schema=True)
-
-        table_ref = bigquery.Dataset(
-            bigquery.DatasetReference(project_id, self.schema_name)
-        ).table(table_name)
-
-        table = self.client.get_table(table_ref)  # API request
-
+    def add_columns(self, table: bigquery.Table, fields: List[bigquery.SchemaField]) -> None:
         schema = table.schema[:]
         schema.extend(fields)
         table.schema = schema
