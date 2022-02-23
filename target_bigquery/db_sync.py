@@ -545,6 +545,7 @@ class DbSync:
         ]
 
         table = bigquery.Table(table_ref, schema=schema)
+        table.clustering_fields = primary_column_names(self.stream_schema_message)
         if is_temporary:
             table.expires = datetime.datetime.now() + datetime.timedelta(days=1)
 
