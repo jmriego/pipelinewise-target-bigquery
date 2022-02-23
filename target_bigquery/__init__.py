@@ -316,8 +316,7 @@ def flush_streams(
                             'row_count': row_count,
                             'db_sync': stream_to_sync[stream],
                             'delete_rows': hard_delete_mapping.get(
-                                stream,
-                                default_hard_delete
+                                stream, default_hard_delete
                             ),
                         },
                     )
