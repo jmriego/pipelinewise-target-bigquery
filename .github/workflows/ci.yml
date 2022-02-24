@@ -70,3 +70,5 @@ jobs:
          TARGET_BIGQUERY_PROJECT: ${{ secrets.TARGET_BIGQUERY_PROJECT }}
          TARGET_BIGQUERY_SCHEMA: ${{ secrets.TARGET_BIGQUERY_SCHEMA }}_MR${{ github.event.number }}_${{ matrix.python-version }}
          TARGET_BIGQUERY_LOCATION: ${{ secrets.TARGET_BIGQUERY_LOCATION }}
+         TARGET_BIGQUERY_GCS_BUCKET: ${{ secrets.TARGET_BIGQUERY_GCS_BUCKET }}
+         TARGET_BIGQUERY_GCS_KEY_PREFIX: ${{ secrets.TARGET_BIGQUERY_GCS_KEY_PREFIX }}

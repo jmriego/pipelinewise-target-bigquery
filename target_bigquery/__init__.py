@@ -6,17 +6,14 @@ import copy
 import io
 import json
 import logging
-import os
 import sys
 from multiprocessing.pool import ThreadPool as Pool
 
-from tempfile import mkstemp
-from fastavro import writer, parse_schema
 from jsonschema import Draft7Validator, FormatChecker
 from singer import get_logger
 
 from target_bigquery import stream_utils
-from target_bigquery.db_sync import DbSync
+from target_bigquery.db_sync import DbSync, flatten_record
 from target_bigquery.exceptions import (
     RecordValidationException,
     InvalidValidationOperationException
@@ -121,7 +118,21 @@ def persist_lines(config, lines) -> None:
                             "or more) Try removing 'multipleOf' methods from JSON schema.")
                     raise RecordValidationException(f"Record does not pass schema validation. RECORD: {o['record']}")
 
-            primary_key_string = stream_to_sync[stream].record_primary_key_string(o['record'])
+            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
+                record = stream_utils.add_metadata_values_to_record(o)
+            else:
+                record = stream_utils.remove_metadata_values_from_record(
+                    o, stream_to_sync[stream].stream_schema_message['schema']
+                )
+
+            # Flatten record
+            record = flatten_record(
+                record,
+                stream_to_sync[stream].stream_schema_message['schema'],
+                max_level=stream_to_sync[stream].data_flattening_max_level
+            )
+
+            primary_key_string = stream_to_sync[stream].record_primary_key_string(record)
             if not primary_key_string:
                 primary_key_string = 'RID-{}'.format(total_row_count[stream])
 
@@ -131,10 +142,7 @@ def persist_lines(config, lines) -> None:
                 total_row_count[stream] += 1
 
             # append record
-            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
-                records_to_load[stream][primary_key_string] = stream_utils.add_metadata_values_to_record(o)
-            else:
-                records_to_load[stream][primary_key_string] = o['record']
+            records_to_load[stream][primary_key_string] = record
 
             flush = False
             if row_count[stream] >= batch_size_rows:
@@ -370,17 +378,8 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
 
 
 def flush_records(stream, records_to_load, row_count, db_sync):
-    parsed_schema = parse_schema(db_sync.avro_schema())
-    csv_fd, csv_file = mkstemp()
-    with open(csv_file, 'wb') as out:
-        writer(out, parsed_schema, db_sync.records_to_avro(records_to_load.values()))
-
     # Seek to the beginning of the file and load
-    with open(csv_file, 'r+b') as f:
-        db_sync.load_avro(f, row_count)
-
-    # Delete temp file
-    os.remove(csv_file)
+    db_sync.load_records(records_to_load.values(), row_count)
 
 
 def main():

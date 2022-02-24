@@ -111,6 +111,18 @@ def add_metadata_values_to_record(record_message):
 
     return extended_record
 
+def remove_metadata_values_from_record(record_message, schema):
+    """Remove metadata _sdc columns from incoming record message if not in SCHEMA
+    The location of the required attributes are fixed in the stream
+    """
+    expected_metadata = {k for k in schema['properties'].keys() if k.startswith('_sdc_')}
+
+    reduced_record = record_message['record']
+    reduced_record = {
+        k: v for k, v in reduced_record.items() if not k.startswith('_sdc_') or k in expected_metadata
+    }
+
+    return reduced_record
 
 def stream_name_to_dict(stream_name, separator='-'):
     """Transform stream name string to dictionary"""
