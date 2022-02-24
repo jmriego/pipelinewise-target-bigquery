@@ -529,7 +529,7 @@ class DbSync:
     def column_names(self):
         return [safe_column_name(name) for name in self.flatten_schema]
 
-    def create_table(self, is_temporary=False):
+    def create_table(self, is_temporary: bool = False) -> bigquery.Table:
         stream_schema_message = self.stream_schema_message
 
         project_id = self.connection_config['project_id']
@@ -548,8 +548,8 @@ class DbSync:
         if is_temporary:
             table.expires = datetime.datetime.now() + datetime.timedelta(days=1)
 
-        self.client.create_table(table)
-        self.update_clustering_fields(table)
+        table = self.client.create_table(table)
+        return self.update_clustering_fields(table)
 
     def grant_usage_on_schema(self, schema_name, grantee):
         query = "GRANT USAGE ON SCHEMA {} TO GROUP {}".format(schema_name, grantee)
@@ -605,7 +605,7 @@ class DbSync:
     def get_table_columns(self, table: bigquery.Table):
         return {field.name: field for field in table.schema}
 
-    def update_columns(self):
+    def update_columns(self) -> bigquery.Table:
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         table_name = self.table_name(stream, without_schema=True)
@@ -618,7 +618,7 @@ class DbSync:
             if safe_column_name(name, quotes=False) not in columns
         ]
 
-        self.add_columns(table, columns_to_add)
+        table =self.add_columns(table, columns_to_add)
 
         columns_to_replace = [
             column_type(name, properties_schema)
@@ -628,20 +628,21 @@ class DbSync:
         ]
 
         for field in columns_to_replace:
-            self.version_column(table, field)
+            table = self.version_column(table, field)
 
-        self.update_clustering_fields(table)
+        return self.update_clustering_fields(table)
 
-    def update_clustering_fields(self, table: bigquery.Table) -> None:
+    def update_clustering_fields(self, table: bigquery.Table) -> bigquery.Table:
         new_clustering_fields = [
             self.renamed_columns.get(c, c) for c in primary_column_names(self.stream_schema_message)
         ]
         if table.clustering_fields != new_clustering_fields:
             logger.info('Updating clustering fields: {}'.format(new_clustering_fields))
             table.clustering_fields = new_clustering_fields
-            self.client.update_table(table, ['clustering_fields'])
+            return self.client.update_table(table, ['clustering_fields'])
+        return table
 
-    def version_column(self, table: bigquery.Table, field: bigquery.SchemaField) -> None:
+    def version_column(self, table: bigquery.Table, field: bigquery.SchemaField) -> bigquery.Table:
         column = safe_column_name(field.name, quotes=False)
         col_type_suffixes = {
             'timestamp': 'ti',
@@ -679,16 +680,20 @@ class DbSync:
         # if we didnt find a existing suitable column, create it
         if not column in self.renamed_columns:
             logger.info('Versioning column: {}'.format(field_with_type_suffix))
-            self.add_columns(table, [self.alias_field(field, field_with_type_suffix)])
+            table = self.add_columns(table, [self.alias_field(field, field_with_type_suffix)])
             self.renamed_columns[column] = field_with_type_suffix
+        return table
 
-    def add_columns(self, table: bigquery.Table, fields: List[bigquery.SchemaField]) -> None:
-        schema = table.schema[:]
-        schema.extend(fields)
-        table.schema = schema
+    def add_columns(self, table: bigquery.Table, fields: List[bigquery.SchemaField]) -> bigquery.Table:
+        # Only do an update if there are fields to add.
+        if fields:
+            schema = table.schema
+            schema.extend(fields)
+            table.schema = schema
 
-        logger.info('Adding columns: {}'.format([field.name for field in fields]))
-        self.client.update_table(table, ['schema'])  # API request
+            logger.info('Adding columns: {}'.format([field.name for field in fields]))
+            return self.client.update_table(table, ['schema'])  # API request
+        return table
 
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
