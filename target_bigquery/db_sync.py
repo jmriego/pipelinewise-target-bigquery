@@ -6,7 +6,7 @@ import itertools
 import time
 import datetime
 from decimal import Decimal, getcontext
-from typing import List, Mapping, MutableMapping, Optional, Union
+from typing import List, Mapping, MutableMapping, Optional, Tuple, Union
 
 from google.cloud import bigquery
 
@@ -466,30 +466,41 @@ class DbSync:
             f'{src.dataset_id}.{src.table_id}',
         )
 
-    def get_partitions_for_upsert_sql(self, src: bigquery.Table, time_partitioning: Optional[bigquery.TimePartitioning]) -> str:
-        clause = ''
-        if time_partitioning:
-            field = self.renamed_columns.get(time_partitioning.field, time_partitioning.field)
-            clause = (
-                '-- define partitions with updates\n'
-                'DECLARE partitions_for_upsert ARRAY<TIMESTAMP>;\n'
-                'SET (partitions_for_upsert) = (\n'
-                '    SELECT AS STRUCT\n'
-                f'        ARRAY_AGG(DISTINCT TIMESTAMP_TRUNC({field}, {time_partitioning.type_}))\n'
-                f'FROM `{src.dataset_id}.{src.table_id}`'
-                ');\n'
-            )
-        return clause
-
     @staticmethod
-    def get_partition_pruning_sql(dest: bigquery.Table) -> str:
-        clause = ''
-        if dest.time_partitioning:
-            clause = (
-                f'\n    AND TIMESTAMP_TRUNC({dest.time_partitioning.field}, {dest.time_partitioning.type_}) '
-                f'IN UNNEST(partitions_for_upsert)'
-            )
-        return clause
+    def get_partition_key_sql(
+        field: str,
+        partitioning: Union[bigquery.TimePartitioning, bigquery.RangePartitioning]
+    ) -> Tuple[str, str]:
+        if isinstance(partitioning, bigquery.TimePartitioning):
+            field_type = 'TIMESTAMP'
+            sub_clause = f'TIMESTAMP_TRUNC({field}, {partitioning.type_})'
+        else:
+            field_type = 'INT64'
+            sub_clause = field
+        return field_type, sub_clause
+
+    def get_partitions_for_upsert_sql(
+        self,
+        src: bigquery.Table,
+        partitioning: Union[bigquery.TimePartitioning, bigquery.RangePartitioning]
+    ) -> str:
+        field = f's.{self.renamed_columns.get(partitioning.field, partitioning.field)}'
+        field_type, sub_clause = self.get_partition_key_sql(field, partitioning)
+        return (
+            '-- define partitions with updates\n'
+            f'DECLARE partitions_for_upsert ARRAY<{field_type}>;\n'
+            'SET (partitions_for_upsert) = (\n'
+            '    SELECT AS STRUCT\n'
+            f'        ARRAY_AGG(DISTINCT {sub_clause})\n'
+            f'FROM `{src.dataset_id}.{src.table_id}` AS s'
+            ');\n'
+        )
+
+    def get_partition_pruning_sql(
+        self, partitioning: Union[bigquery.TimePartitioning, bigquery.RangePartitioning]
+    ) -> str:
+        _, sub_clause = self.get_partition_key_sql(f't.{partitioning.field}', partitioning)
+        return f'\n    AND {sub_clause} IN UNNEST(partitions_for_upsert)'
 
     def check_partition_pruning_possible(
         self,
@@ -515,7 +526,7 @@ class DbSync:
         partitioning = dest.time_partitioning or dest.range_partitioning
         if self.check_partition_pruning_possible(src, partitioning):
             partitions_for_upsert_sql = self.get_partitions_for_upsert_sql(src, partitioning)
-            partition_pruning_sql = self.get_partition_pruning_sql(dest)
+            partition_pruning_sql = self.get_partition_pruning_sql(partitioning)
 
         return """
         {partitions_for_upsert}
