@@ -6,7 +6,7 @@ import itertools
 import time
 import datetime
 from decimal import Decimal, getcontext
-from typing import List, Mapping, MutableMapping
+from typing import List, Mapping, MutableMapping, Optional
 
 from google.cloud import bigquery
 
@@ -368,18 +368,18 @@ class DbSync:
 
         return query_job
 
-    def table_name(self, stream_name, is_temporary=False, without_schema=False):
+    def table_ref(self, stream_name: str, is_temporary: bool = False) -> bigquery.TableReference:
         stream_dict = stream_name_to_dict(stream_name)
         pattern = '[^a-zA-Z0-9]'
-        table_name = re.sub(pattern, '_', stream_dict['table_name']).lower()
+        project_id = self.connection_config['project_id']
+        dataset_id = self.schema_name
+        table_id = re.sub(pattern, '_', stream_dict['table_name']).lower()
 
         if is_temporary:
-            table_name =  '{}_temp'.format(table_name)
+            dataset_id = self.connection_config.get('temp_schema', dataset_id)
+            table_id = f'{table_id}_temp'
 
-        if without_schema:
-            return '{}'.format(table_name)
-        else:
-            return '{}.{}'.format(self.schema_name, table_name)
+        return bigquery.DatasetReference(project_id, dataset_id).table(table_id)
 
     def record_primary_key_string(self, record):
         if len(self.stream_schema_message['key_properties']) == 0:
@@ -404,22 +404,20 @@ class DbSync:
     # pylint: disable=too-many-locals
     def load_records(self, records, count):
         stream_schema_message = self.stream_schema_message
+        target_table = self.get_table(stream_schema_message['stream'])
         logger.info("Loading {} rows into '{}'".format(
-            count, self.table_name(stream_schema_message['stream'], False))
+            count, target_table.table_id)
         )
 
-        project_id = self.connection_config['project_id']
         # TODO: make temp table creation and DML atomic with merge
-        temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
+        temp_table = self.table_ref(stream_schema_message['stream'], is_temporary=True)
         logger.info("INSERTING INTO {} ({})".format(
-            temp_table,
+            temp_table.table_id,
             ', '.join(self.column_names())
         ))
 
         schema = [column_type(name, schema) for name, schema in self.flatten_schema.items()]
 
-        dataset_id = self.connection_config.get('temp_schema', self.schema_name).strip()
-        table_ref = bigquery.DatasetReference(project_id, dataset_id).table(temp_table)
         job_config = bigquery.LoadJobConfig()
         job_config.schema = schema
         job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
@@ -436,7 +434,7 @@ class DbSync:
         # Ingest into temp table
         job = self.client.load_table_from_uri(
             f'gs://{blob.bucket.name}/{blob.name}',
-            table_ref,
+            temp_table,
             job_config=job_config,
         )
 
@@ -445,56 +443,73 @@ class DbSync:
         finally:
             blob.delete()
 
+        temp_table = self.client.get_table(temp_table)
+
         if len(self.stream_schema_message['key_properties']) > 0:
-            query = self.update_from_temp_table(temp_table)
+            query = self.get_merge_from_table_sql(temp_table, target_table)
         else:
-            query = self.insert_from_temp_table(temp_table)
-        drop_temp_query = self.drop_temp_table(temp_table)
+            query = self.get_insert_from_table_sql(temp_table, target_table)
+        drop_temp_query = self.get_drop_table_sql(temp_table)
         results = self.query([query, drop_temp_query])
         logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))
 
-    def drop_temp_table(self, temp_table):
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
+    @staticmethod
+    def get_drop_table_sql(table: bigquery.Table) -> str:
+        return f"DROP TABLE IF EXISTS `{table.dataset_id}.{table.table_id}`"
 
-        return "DROP TABLE IF EXISTS {}.{}".format(
-            temp_schema,
-            temp_table
-        )
-
-    def insert_from_temp_table(self, temp_table):
-        stream_schema_message = self.stream_schema_message
-        columns = self.column_names()
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
-        table = self.table_name(stream_schema_message['stream'])
-
-        return """INSERT INTO {} ({})
-                (SELECT s.* FROM {}.{} s)
+    def get_insert_from_table_sql(self, src: bigquery.Table, dest: bigquery.Table) -> str:
+        return """INSERT INTO `{}` ({})
+                (SELECT s.* FROM `{}` s)
                 """.format(
-            table,
-            ', '.join(columns),
-            temp_schema,
-            temp_table
+            f'{dest.dataset_id}.{dest.table_id}',
+            ', '.join(self.column_names()),
+            f'{src.dataset_id}.{src.table_id}',
         )
 
-    def update_from_temp_table(self, temp_table):
-        stream_schema_message = self.stream_schema_message
-        columns = self.column_names()
-        table = self.table_name(stream_schema_message['stream'])
-        table_without_schema = self.table_name(stream_schema_message['stream'], without_schema=True)
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
+    def get_partitions_for_upsert_sql(self, table: bigquery.Table, time_partitioning: Optional[bigquery.TimePartitioning]) -> str:
+        clause = ''
+        if time_partitioning:
+            field = self.renamed_columns.get(time_partitioning.field, time_partitioning.field)
+            clause = (
+                'DECLARE partitions_for_upsert ARRAY<TIMESTAMP>;\n'
+                'SET (partitions_for_upsert) = (\n'
+                '    SELECT AS STRUCT\n'
+                f'        ARRAY_AGG(DISTINCT TIMESTAMP_TRUNC({field}, {time_partitioning.type_}))\n'
+                f'FROM `{table.dataset_id}.{table.table_id}`'
+                ');\n'
+            )
+        return clause
 
-        result = """MERGE `{table}` t
-        USING `{temp_schema}`.`{temp_table}` s
-        ON {primary_key_condition}
+    @staticmethod
+    def get_partition_pruning_sql(table: bigquery.Table) -> str:
+        clause = ''
+        if table.time_partitioning:
+            clause = (
+                f'\n    AND TIMESTAMP_TRUNC({table.time_partitioning.field}, {table.time_partitioning.type_}) '
+                f'IN UNNEST(partitions_for_upsert)'
+            )
+        return clause
+
+    def get_merge_from_table_sql(self, src: bigquery.Table, dest: bigquery.Table) -> str:
+        columns = self.column_names()
+        return """
+        -- 1. define partitions with updates if target table has time partitions (else noop)
+        {partitions_for_upsert}
+
+        -- 2. run the merge statement with partition pruning if target table has time partitions
+        MERGE `{target}` t
+        USING `{source}` s
+        ON {primary_key_condition}{partition_pruning}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
         WHEN NOT MATCHED THEN
             INSERT ({renamed_cols}) VALUES ({cols})
         """.format(
-            table=table,
-            temp_schema=temp_schema,
-            temp_table=temp_table,
+            partitions_for_upsert=self.get_partitions_for_upsert_sql(src, dest.time_partitioning),
+            target=f'{dest.dataset_id}.{dest.table_id}',
+            source=f'{src.dataset_id}.{src.table_id}',
             primary_key_condition=self.primary_key_condition(),
+            partition_pruning=self.get_partition_pruning_sql(dest),
             set_values=', '.join(
                 '{}=s.{}'.format(
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
@@ -503,8 +518,7 @@ class DbSync:
             renamed_cols=', '.join(
                 safe_column_name(self.renamed_columns.get(c, c), quotes=True)
                 for c in columns),
-            cols=', '.join(safe_column_name(c,quotes=True) for c in self.column_names()))
-        return result
+            cols=', '.join(safe_column_name(c,quotes=True) for c in columns))
 
     def primary_key_condition(self):
         stream_schema_message = self.stream_schema_message
@@ -532,9 +546,7 @@ class DbSync:
     def create_table(self, is_temporary: bool = False) -> bigquery.Table:
         stream_schema_message = self.stream_schema_message
 
-        project_id = self.connection_config['project_id']
-        table_name =  self.table_name(stream_schema_message['stream'], is_temporary, without_schema=True)
-        table_ref = bigquery.DatasetReference(project_id, self.schema_name).table(table_name)
+        table_ref =  self.table_ref(stream_schema_message['stream'], is_temporary)
 
         schema = [
             column_type(
@@ -570,9 +582,9 @@ class DbSync:
             grant_method(schema, grantees)
 
     def delete_rows(self, stream):
-        table = self.table_name(stream, False)
-        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
-        logger.info("Deleting rows from '{}' table... {}".format(table, query))
+        table = self.table_ref(stream)
+        query = f"DELETE FROM `{table.dataset_id}.{table.table_id}` WHERE _sdc_deleted_at IS NOT NULL"
+        logger.info("Deleting rows from '{}' table... {}".format(table.table_id, query))
         logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
     def create_schema_if_not_exists(self):
@@ -595,12 +607,9 @@ class DbSync:
         api_repr['name'] = alias
         return SchemaField.from_api_repr(api_repr)
 
-    def get_table(self, table_name: str) -> bigquery.Table:
-        project_id = self.connection_config['project_id']
-        table_name = self.table_name(table_name, without_schema=True)
-        return self.client.get_table(
-            bigquery.DatasetReference(project_id, self.schema_name).table(table_name)
-        )
+    def get_table(self, table_name: str, is_temporary: bool = False) -> bigquery.Table:
+        table_ref = self.table_ref(table_name, is_temporary=is_temporary)
+        return self.client.get_table(table_ref)
 
     def get_table_columns(self, table: bigquery.Table):
         return {field.name: field for field in table.schema}
@@ -608,8 +617,7 @@ class DbSync:
     def update_columns(self) -> bigquery.Table:
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
-        table_name = self.table_name(stream, without_schema=True)
-        table = self.get_table(table_name)
+        table = self.get_table(stream)
         columns = self.get_table_columns(table)
 
         columns_to_add = [
@@ -699,11 +707,11 @@ class DbSync:
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
 
-        table_name_with_schema = self.table_name(stream)
+        table_ref = self.table_ref(stream)
         try:
             self.create_table()
-            logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))
+            logger.info(f"Table '{table_ref.dataset_id}.{table_ref.table_id}' does not exist. Creating...")
             self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
         except Conflict:
-            logger.info("Table '{}' exists".format(table_name_with_schema))
+            logger.info(f"Table '{table_ref.dataset_id}.{table_ref.table_id}' exists")
             self.update_columns()
