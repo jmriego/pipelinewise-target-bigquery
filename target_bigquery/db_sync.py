@@ -6,7 +6,7 @@ import itertools
 import time
 import datetime
 from decimal import Decimal, getcontext
-from typing import List, MutableMapping, Optional
+from typing import List, MutableMapping, Optional, Union
 
 from google.cloud import bigquery
 
@@ -501,37 +501,60 @@ class DbSync:
             f'{src.dataset_id}.{src.table_id}',
         )
 
-    def get_partitions_for_upsert_sql(self, table: bigquery.Table, time_partitioning: Optional[bigquery.TimePartitioning]) -> str:
+    def get_partitions_for_upsert_sql(self, src: bigquery.Table, time_partitioning: Optional[bigquery.TimePartitioning]) -> str:
         clause = ''
         if time_partitioning:
             field = self.renamed_columns.get(time_partitioning.field, time_partitioning.field)
             clause = (
+                '-- define partitions with updates\n'
                 'DECLARE partitions_for_upsert ARRAY<TIMESTAMP>;\n'
                 'SET (partitions_for_upsert) = (\n'
                 '    SELECT AS STRUCT\n'
                 f'        ARRAY_AGG(DISTINCT TIMESTAMP_TRUNC({field}, {time_partitioning.type_}))\n'
-                f'FROM `{table.dataset_id}.{table.table_id}`'
+                f'FROM `{src.dataset_id}.{src.table_id}`'
                 ');\n'
             )
         return clause
 
     @staticmethod
-    def get_partition_pruning_sql(table: bigquery.Table) -> str:
+    def get_partition_pruning_sql(dest: bigquery.Table) -> str:
         clause = ''
-        if table.time_partitioning:
+        if dest.time_partitioning:
             clause = (
-                f'\n    AND TIMESTAMP_TRUNC({table.time_partitioning.field}, {table.time_partitioning.type_}) '
+                f'\n    AND TIMESTAMP_TRUNC({dest.time_partitioning.field}, {dest.time_partitioning.type_}) '
                 f'IN UNNEST(partitions_for_upsert)'
             )
         return clause
 
+    def check_partition_pruning_possible(
+        self,
+        src: bigquery.Table,
+        partitioning: Optional[Union[bigquery.TimePartitioning, bigquery.RangePartitioning]],
+    ) -> bool:
+        pruning_possible = False
+        if partitioning is not None:
+            query = (
+                'SELECT COUNT(*)\n'
+                f'FROM `{src.dataset_id}.{src.table_id}`\n'
+                f'WHERE `{partitioning.field}` IS NULL'
+            )
+            pruning_possible = next(self.client.query(query).result())[0] == 0
+        return pruning_possible
+
     def get_merge_from_table_sql(self, src: bigquery.Table, dest: bigquery.Table) -> str:
         columns = self.column_names()
-        return """
-        -- 1. define partitions with updates if target table has time partitions (else noop)
-        {partitions_for_upsert}
 
-        -- 2. run the merge statement with partition pruning if target table has time partitions
+        # First determine whether we can use partition pruning
+        partitions_for_upsert_sql = ''
+        partition_pruning_sql = ''
+        partitioning = dest.time_partitioning or dest.range_partitioning
+        if self.check_partition_pruning_possible(src, partitioning):
+            partitions_for_upsert_sql = self.get_partitions_for_upsert_sql(src, partitioning)
+            partition_pruning_sql = self.get_partition_pruning_sql(dest)
+
+        return """
+        {partitions_for_upsert}
+        -- run the merge statement
         MERGE `{target}` t
         USING `{source}` s
         ON {primary_key_condition}{partition_pruning}
@@ -540,11 +563,11 @@ class DbSync:
         WHEN NOT MATCHED THEN
             INSERT ({renamed_cols}) VALUES ({cols})
         """.format(
-            partitions_for_upsert=self.get_partitions_for_upsert_sql(src, dest.time_partitioning),
+            partitions_for_upsert=partitions_for_upsert_sql,
             target=f'{dest.dataset_id}.{dest.table_id}',
             source=f'{src.dataset_id}.{src.table_id}',
             primary_key_condition=self.primary_key_condition(),
-            partition_pruning=self.get_partition_pruning_sql(dest),
+            partition_pruning=partition_pruning_sql,
             set_values=', '.join(
                 '{}=s.{}'.format(
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
