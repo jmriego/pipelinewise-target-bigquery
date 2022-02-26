@@ -514,7 +514,7 @@ class DbSync:
                 f'FROM `{src.dataset_id}.{src.table_id}`\n'
                 f'WHERE `{partitioning.field}` IS NULL'
             )
-            pruning_possible = self.client.query(query).result().next()[0] == 0
+            pruning_possible = next(self.client.query(query).result())[0] == 0
         return pruning_possible
 
     def get_merge_from_table_sql(self, src: bigquery.Table, dest: bigquery.Table) -> str:
