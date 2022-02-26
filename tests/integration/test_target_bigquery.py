@@ -6,6 +6,17 @@ import unittest.mock as mock
 from datetime import timezone
 from decimal import Decimal, getcontext
 
+from google.cloud.bigquery import (
+    DatasetReference,
+    Table,
+    SchemaField,
+    TimePartitioning,
+    TimePartitioningType,
+    RangePartitioning,
+    PartitionRange,
+)
+
+
 import target_bigquery
 from target_bigquery.db_sync import DbSync, PRECISION
 
@@ -882,3 +893,77 @@ class TestIntegration(unittest.TestCase):
 
         self.assert_logical_streams_are_in_bigquery(True)
         self.assertGreater(mock_emit_state.call_count, 1, 'Expecting multiple flushes')
+
+    def test_table_with_time_partition(self):
+        """Tests loading data into a table with a pre-existing time partition."""
+        bigquery = DbSync(self.config)
+        project_id = self.config['project_id']
+        dataset_id = self.config['default_target_schema']
+
+        # Set up table
+        table_id = 'test_table_two'
+        dataset_ref = DatasetReference(project_id, dataset_id)
+        table = Table(
+            dataset_ref.table(table_id),
+            schema=[
+                SchemaField(name='c_pk', field_type='INT64'),
+                SchemaField(name='c_varchar', field_type='string'),
+                SchemaField(name='c_int', field_type='INT64'),
+                SchemaField(name='c_date', field_type='TIMESTAMP'),
+            ],
+        )
+        table.time_partitioning = TimePartitioning(
+            type_=TimePartitioningType.DAY,
+            field='c_date',
+        )
+        bigquery.client.create_dataset(dataset_ref, exists_ok=True)
+        bigquery.client.delete_table(table, not_found_ok=True)
+        bigquery.client.create_table(table)
+
+        # Get tap lines
+        tap_lines = test_utils.get_test_tap_lines('messages-with-three-streams.json')
+
+        # Confirm load works
+        self.persist_lines(tap_lines)
+        self.assert_three_streams_are_into_bigquery()
+
+        # Confirm idempotence
+        self.persist_lines(tap_lines)
+        self.assert_three_streams_are_into_bigquery()
+
+    def test_table_with_range_partition(self):
+        """Tests loading data into a table with a pre-existing range partition."""
+        bigquery = DbSync(self.config)
+        project_id = self.config['project_id']
+        dataset_id = self.config['default_target_schema']
+
+        # Set up table
+        table_id = 'test_table_two'
+        dataset_ref = DatasetReference(project_id, dataset_id)
+        table = Table(
+            dataset_ref.table(table_id),
+            schema=[
+                SchemaField(name='c_pk', field_type='INT64'),
+                SchemaField(name='c_varchar', field_type='string'),
+                SchemaField(name='c_int', field_type='INT64'),
+                SchemaField(name='c_date', field_type='TIMESTAMP'),
+            ],
+        )
+        table.range_partitioning = RangePartitioning(
+            range_=PartitionRange(start=0, end=10_000, interval=1),
+            field='c_pk',
+        )
+        bigquery.client.create_dataset(dataset_ref, exists_ok=True)
+        bigquery.client.delete_table(table, not_found_ok=True)
+        bigquery.client.create_table(table)
+
+        # Get tap lines
+        tap_lines = test_utils.get_test_tap_lines('messages-with-three-streams.json')
+
+        # Confirm load works
+        self.persist_lines(tap_lines)
+        self.assert_three_streams_are_into_bigquery()
+
+        # Confirm idempotence
+        self.persist_lines(tap_lines)
+        self.assert_three_streams_are_into_bigquery()
