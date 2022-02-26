@@ -899,6 +899,7 @@ class TestIntegration(unittest.TestCase):
         bigquery = DbSync(self.config)
         project_id = self.config['project_id']
         dataset_id = self.config['default_target_schema']
+        bigquery.connection_config['use_partition_pruning'] = True
 
         # Set up table
         table_id = 'test_table_two'
@@ -936,6 +937,7 @@ class TestIntegration(unittest.TestCase):
         bigquery = DbSync(self.config)
         project_id = self.config['project_id']
         dataset_id = self.config['default_target_schema']
+        bigquery.connection_config['use_partition_pruning'] = True
 
         # Set up table
         table_id = 'test_table_two'

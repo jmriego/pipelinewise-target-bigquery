@@ -543,7 +543,7 @@ class DbSync:
         partitioning: Optional[Union[bigquery.TimePartitioning, bigquery.RangePartitioning]],
     ) -> bool:
         pruning_possible = False
-        if partitioning is not None:
+        if partitioning is not None and self.connection_config.get('use_partition_pruning', False):
             query = (
                 'SELECT COUNT(*)\n'
                 f'FROM `{src.dataset_id}.{src.table_id}`\n'
