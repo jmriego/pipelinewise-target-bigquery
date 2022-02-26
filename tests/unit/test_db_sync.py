@@ -56,6 +56,8 @@ class TestDBSync(unittest.TestCase):
         json_str_or_null = {"type": ["string", "null"]}
         json_dt = {"type": ["string"], "format": "date-time"}
         json_dt_or_null = {"type": ["string", "null"], "format": "date-time"}
+        json_date = {"type": ["string"], "format": "date"}
+        json_date_or_null = {"type": ["string", "null"], "format": "date"}
         json_t = {"type": ["string"], "format": "time"}
         json_t_or_null = {"type": ["string", "null"], "format": "time"}
         json_num = {"type": ["number"]}
@@ -96,6 +98,8 @@ class TestDBSync(unittest.TestCase):
         self.assertEqual(mapper(json_str_or_null), ('string', 'NULLABLE'))
         self.assertEqual(mapper(json_dt), ('timestamp', 'NULLABLE'))
         self.assertEqual(mapper(json_dt_or_null), ('timestamp', 'NULLABLE'))
+        self.assertEqual(mapper(json_date), ('date', 'NULLABLE'))
+        self.assertEqual(mapper(json_date_or_null), ('date', 'NULLABLE'))
         self.assertEqual(mapper(json_t), ('time', 'NULLABLE'))
         self.assertEqual(mapper(json_t_or_null), ('time', 'NULLABLE'))
         self.assertEqual(mapper(json_num), ('numeric', 'NULLABLE'))

@@ -51,6 +51,8 @@ def bigquery_type(property_type, property_format):
     # TIMESTAMP which includes time zone is the better column type
     if property_format == 'date-time':
         return 'timestamp'
+    if property_format == 'date':
+        return 'date'
     elif property_format == 'time':
         return 'time'
     elif 'number' in property_type:
@@ -131,6 +133,10 @@ def column_type_avro(name, schema_property):
         result_type = {
             'type': 'long',
             'logicalType': 'timestamp-millis'}
+    elif property_format == 'date':
+        result_type = {
+            'type': 'int',
+            'logicalType': 'date'}
     elif property_format == 'time':
         result_type = {
             'type': 'int',

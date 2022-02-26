@@ -390,6 +390,25 @@ class TestIntegration(unittest.TestCase):
                 {'c_pk': 1, 'camelcasecolumn': 'Dummy row 1', 'minus_column': 'Dummy row 1'}
             ])
 
+    def test_date_format_like_datetime(self):
+        """Testing date format acts like date-time"""
+        tap_lines = test_utils.get_test_tap_lines('date-format.json')
+
+        # Load with default settings
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        table_date = query(bigquery, "SELECT * FROM {}.test_date_format ORDER BY id".format(target_schema))
+
+        self.assertEqual(
+            table_date,
+            [
+                {'id': 1, 'some_date': None},
+                {'id': 2, 'some_date': datetime.date(2021, 3, 24)}
+            ])
+
     def test_non_db_friendly_columns(self):
         """Loading non-db friendly columns like, camelcase, minus signs, etc."""
         tap_lines = test_utils.get_test_tap_lines('messages-with-non-db-friendly-columns.json')

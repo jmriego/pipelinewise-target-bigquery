@@ -1,0 +1,5 @@
+{"type": "STATE", "value": {"currently_syncing": "tap_mongodb_test-test_date_format"}}
+{"type": "SCHEMA", "stream": "tap_mongodb_test-test_date_format", "schema": {"properties": {"id": {"type": ["integer"]},"some_date": {"format": "date", "type": ["string", "null"]}}, "type": "object"}, "key_properties": ["id"], "bookmark_properties": ["id"]}
+{"type": "RECORD", "stream": "tap_mongodb_test-test_date_format", "record": {"id": 1, "some_date": null}, "time_extracted": "2022-02-22T18:25:53.171486Z"}
+{"type": "RECORD", "stream": "tap_mongodb_test-test_date_format", "record": {"id": 2, "some_date": "2021-03-24"}, "time_extracted": "2022-02-22T18:25:53.186510Z"}
+{"type": "STATE", "value": {"bookmarks": {"tap_mongodb_test-test_date_format": {"replication_key": "id", "replication_key_value": 2}}}}
