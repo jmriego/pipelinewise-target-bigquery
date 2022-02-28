@@ -6,6 +6,17 @@ import unittest.mock as mock
 from datetime import timezone
 from decimal import Decimal, getcontext
 
+from google.cloud.bigquery import (
+    DatasetReference,
+    Table,
+    SchemaField,
+    TimePartitioning,
+    TimePartitioningType,
+    RangePartitioning,
+    PartitionRange,
+)
+
+
 import target_bigquery
 from target_bigquery.db_sync import DbSync, PRECISION
 
