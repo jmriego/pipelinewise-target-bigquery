@@ -1,6 +1,7 @@
 import json
 import sys
 import singer
+from collections.abc import MutableMapping
 import re
 import itertools
 import time
@@ -229,7 +230,11 @@ def flatten_record(d, parent_key=[], sep='__', level=0, max_level=0):
         if isinstance(v, MutableMapping) and level < max_level:
             items.extend(flatten_record(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
         else:
-            items.append((new_key, v if type(v) is list or type(v) is dict else v))
+            if type(v) is dict:
+                # Need to fix the keys of nested dicts, lowercase etc
+                items.append((new_key, flatten_record(v, level = 0, max_level=0)))
+            else:
+                items.append((new_key, v))
     return dict(items)
 
 
@@ -395,10 +400,11 @@ class DbSync:
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
         flatten = flatten_record(record, max_level=self.data_flattening_max_level)
+        primary_keys = [safe_column_name(p, quotes=False) for p in self.stream_schema_message['key_properties']]
         try:
-            key_props = [str(flatten[p.lower()]) for p in self.stream_schema_message['key_properties']]
+            key_props = [str(flatten[p]) for p in primary_keys]
         except Exception as exc:
-            logger.info("Cannot find {} primary key(s) in record: {}".format(self.stream_schema_message['key_properties'], flatten))
+            logger.info("Cannot find {} primary key(s) in record: {}".format(primary_keys, flatten))
             raise exc
         return ','.join(key_props)
 
