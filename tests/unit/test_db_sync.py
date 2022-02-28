@@ -247,6 +247,77 @@ class TestDBSync(unittest.TestCase):
         # NO FLATTENING - Record with simple properties should be a plain dictionary
         self.assertEqual(flatten_record(not_nested_record), not_nested_record)
 
+        nested_record = {
+            "c_pk": 1,
+            "c_varchar": "1",
+            "c_int": 1,
+            "c_obj": {
+                "nested_prop1": "value_1",
+                "nested_prop2": "value_2",
+                "nested_prop3": {
+                    "multi_nested_prop1": "multi_value_1",
+                    "multi_nested_prop2": "multi_value_2",
+                }}}
+
+        # NO FLATTENING - No flattening (default)
+        self.maxDiff = None
+        self.assertEqual(flatten_record(nested_record),
+                          {
+                              "c_pk": 1,
+                              "c_varchar": "1",
+                              "c_int": 1,
+                              "c_obj": {"nested_prop1": "value_1", "nested_prop2": "value_2", "nested_prop3": {
+                                       "multi_nested_prop1": "multi_value_1", "multi_nested_prop2": "multi_value_2"}}
+                          })
+
+        # NO FLATTENING
+        #   max_level: 0 : No flattening (default)
+        self.assertEqual(flatten_record(nested_record, max_level=0),
+                          {
+                              "c_pk": 1,
+                              "c_varchar": "1",
+                              "c_int": 1,
+                              "c_obj": {"nested_prop1": "value_1", "nested_prop2": "value_2", "nested_prop3": {
+                                       "multi_nested_prop1": "multi_value_1", "multi_nested_prop2": "multi_value_2"}}
+                          })
+
+        # SEMI FLATTENING
+        #   max_level: 1 : Semi-flattening (default)
+        self.assertEqual(flatten_record(nested_record, max_level=1),
+                          {
+                              "c_pk": 1,
+                              "c_varchar": "1",
+                              "c_int": 1,
+                              "c_obj__nested_prop1": "value_1",
+                              "c_obj__nested_prop2": "value_2",
+                              "c_obj__nested_prop3": {"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": 
+                                                     "multi_value_2"}
+                          })
+
+        # FLATTENING
+        self.assertEqual(flatten_record(nested_record, max_level=10),
+                          {
+                              "c_pk": 1,
+                              "c_varchar": "1",
+                              "c_int": 1,
+                              "c_obj__nested_prop1": "value_1",
+                              "c_obj__nested_prop2": "value_2",
+                              "c_obj__nested_prop3__multi_nested_prop1": "multi_value_1",
+                              "c_obj__nested_prop3__multi_nested_prop2": "multi_value_2"
+                          })
+
+    def test_nested_keys(self):
+        """Test recursive renaming of keys in RECORD messages"""
+        flatten_record = db_sync.flatten_record
+
+        empty_record = {}
+        # Empty record should be empty dict
+        self.assertEqual(flatten_record(empty_record), {})
+
+        not_nested_record = {"c_pk": 1, "c_varchar": "1", "c_int": 1}
+        # NO FLATTENING - Record with simple properties should be a plain dictionary
+        self.assertEqual(flatten_record(not_nested_record), not_nested_record)
+
         # Include some uppercase and hyphens in nested keys to test that flatten_record
         # fixes the key names recursively in all dicts to match schema
         nested_record = {
@@ -292,7 +363,7 @@ class TestDBSync(unittest.TestCase):
                               "c_int": 1,
                               "c_obj__nested_prop1": "value_1",
                               "c_obj__nested_prop2": "value_2",
-                              "c_obj__nested_prop3": {"multi_nested_prop1": "multi_value_1", "multi_nested_prop2": 
+                              "c_obj__nested_prop3": {"multi_nested_prop1": "multi_value_1", "multi_nested_prop2":
                                                      "multi_value_2"}
                           })
 
