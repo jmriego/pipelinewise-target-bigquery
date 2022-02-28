@@ -647,7 +647,7 @@ class DbSync:
     def update_clustering_fields(self, table: bigquery.Table) -> bigquery.Table:
         new_clustering_fields = [
             self.renamed_columns.get(c, c) for c in primary_column_names(self.stream_schema_message)
-        ]
+        ] or None
         if table.clustering_fields != new_clustering_fields:
             logger.info('Updating clustering fields: {}'.format(new_clustering_fields))
             table.clustering_fields = new_clustering_fields
