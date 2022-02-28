@@ -6,7 +6,7 @@ import itertools
 import time
 import datetime
 from decimal import Decimal, getcontext
-from typing import List, Mapping, MutableMapping, Optional, Tuple, Union
+from typing import List, Mapping, MutableMapping, Tuple
 
 from google.cloud import bigquery
 
@@ -466,84 +466,54 @@ class DbSync:
             f'{src.dataset_id}.{src.table_id}',
         )
 
-    @staticmethod
-    def get_partition_key_sql(
-        field: str,
-        partitioning: Union[bigquery.TimePartitioning, bigquery.RangePartitioning]
-    ) -> Tuple[str, str]:
-        if isinstance(partitioning, bigquery.TimePartitioning):
-            field_type = 'TIMESTAMP'
-            sub_clause = f'TIMESTAMP_TRUNC({field}, {partitioning.type_})'
-        else:
-            field_type = 'INT64'
-            sub_clause = field
-        return field_type, sub_clause
-
-    def get_partitions_for_upsert_sql(
-        self,
-        src: bigquery.Table,
-        partitioning: Union[bigquery.TimePartitioning, bigquery.RangePartitioning]
-    ) -> str:
-        field = f's.{self.renamed_columns.get(partitioning.field, partitioning.field)}'
-        field_type, sub_clause = self.get_partition_key_sql(field, partitioning)
-        return (
-            '-- define partitions with updates\n'
-            f'DECLARE partitions_for_upsert ARRAY<{field_type}>;\n'
-            'SET (partitions_for_upsert) = (\n'
-            '    SELECT AS STRUCT\n'
-            f'        ARRAY_AGG(DISTINCT {sub_clause})\n'
-            f'FROM `{src.dataset_id}.{src.table_id}` AS s'
-            ');\n'
+    def get_pruning_field(self, dest: bigquery.Table) -> Tuple[str, str]:
+        # The first element of a composite PK is the primary sort and will at
+        # least help optimize the MERGE.
+        # TODO: incorporate the rest of the PK.
+        field = safe_column_name(primary_column_names(self.stream_schema_message)[0])
+        field_type = next(
+            schema_field.field_type for schema_field in dest.schema
+            if field == self.renamed_columns.get(schema_field.name, schema_field.name)
         )
-
-    def get_partition_pruning_sql(
-        self, partitioning: Union[bigquery.TimePartitioning, bigquery.RangePartitioning]
-    ) -> str:
-        _, sub_clause = self.get_partition_key_sql(f't.{partitioning.field}', partitioning)
-        return f'\n    AND {sub_clause} IN UNNEST(partitions_for_upsert)'
-
-    def check_partition_pruning_possible(
-        self,
-        src: bigquery.Table,
-        partitioning: Optional[Union[bigquery.TimePartitioning, bigquery.RangePartitioning]],
-    ) -> bool:
-        pruning_possible = False
-        if partitioning is not None and self.connection_config.get('use_partition_pruning', False):
-            query = (
-                'SELECT COUNT(*)\n'
-                f'FROM `{src.dataset_id}.{src.table_id}`\n'
-                f'WHERE `{partitioning.field}` IS NULL'
-            )
-            pruning_possible = next(self.client.query(query).result())[0] == 0
-        return pruning_possible
+        # Account for legacy SQL type.
+        field_type = 'INT64' if field_type == 'INTEGER' else field_type
+        return field, field_type
 
     def get_merge_from_table_sql(self, src: bigquery.Table, dest: bigquery.Table) -> str:
         columns = self.column_names()
 
         # First determine whether we can use partition pruning
-        partitions_for_upsert_sql = ''
-        partition_pruning_sql = ''
-        partitioning = dest.time_partitioning or dest.range_partitioning
-        if self.check_partition_pruning_possible(src, partitioning):
-            partitions_for_upsert_sql = self.get_partitions_for_upsert_sql(src, partitioning)
-            partition_pruning_sql = self.get_partition_pruning_sql(partitioning)
+        field, field_type = self.get_pruning_field(dest)
+        range_for_upsert_sql = (
+            f'DECLARE max_partition {field_type};\n'
+            f'DECLARE min_partition {field_type};\n'
+            'SET (max_partition, min_partition) = (\n'
+            '    SELECT AS STRUCT\n'
+            f'        MAX(`{field}`) AS max_partition,\n'
+            f'        MIN(`{field}`) AS min_partition\n'
+            f'    FROM `{src.dataset_id}.{src.table_id}`\n'
+            '    );\n'
+        )
+        pruning_sql = (
+            f' AND t.`{self.renamed_columns.get(field, field)}` BETWEEN min_partition AND max_partition'
+        )
 
         return """
-        {partitions_for_upsert}
+        {range_for_upsert}
         -- run the merge statement
         MERGE `{target}` t
         USING `{source}` s
-        ON {primary_key_condition}{partition_pruning}
+        ON {primary_key_condition}{pruning}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
         WHEN NOT MATCHED THEN
             INSERT ({renamed_cols}) VALUES ({cols})
         """.format(
-            partitions_for_upsert=partitions_for_upsert_sql,
+            range_for_upsert=range_for_upsert_sql,
             target=f'{dest.dataset_id}.{dest.table_id}',
             source=f'{src.dataset_id}.{src.table_id}',
             primary_key_condition=self.primary_key_condition(),
-            partition_pruning=partition_pruning_sql,
+            pruning=pruning_sql,
             set_values=', '.join(
                 '{}=s.{}'.format(
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
