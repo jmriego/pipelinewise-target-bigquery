@@ -1,19 +1,20 @@
 import json
 import sys
 import singer
-from collections.abc import MutableMapping
 import re
-import itertools
 import time
 import datetime
 from decimal import Decimal, getcontext
 from typing import MutableMapping
 
 from google.cloud import bigquery
-
 from google.cloud.bigquery import SchemaField
 from google.cloud.exceptions import Conflict
 
+from target_bigquery import flattening
+from target_bigquery import stream_utils
+from target_bigquery.table_ref import BigQueryRefHelper
+from target_bigquery import sql_utils
 
 logger = singer.get_logger()
 
@@ -69,15 +70,15 @@ def bigquery_type(property_type, property_format):
 
 
 def handle_record_type(safe_name, schema_property, mode="NULLABLE"):
-    fields = [column_type(col, t) for col, t in schema_property.get('properties', {}).items()]
+    fields = [column_schema(col, t) for col, t in schema_property.get('properties', {}).items()]
     if fields:
         return SchemaField(safe_name, 'RECORD', mode, fields=fields)
     else:
         return SchemaField(safe_name, 'string', mode)
 
 
-def column_type(name, schema_property):
-    safe_name = safe_column_name(name, quotes=False)
+def column_schema(name, schema_property):
+    safe_name = sql_utils.safe_column_name(name, quotes=False)
     property_type = schema_property['type']
     property_format = schema_property.get('format', None)
 
@@ -102,14 +103,14 @@ def column_type(name, schema_property):
         return SchemaField(safe_name, result_type, 'NULLABLE')
 
 
-def column_type_avro(name, schema_property):
+def column_schema_avro(name, schema_property):
     property_type = schema_property['type']
     property_format = schema_property.get('format', None)
-    result = {"name": safe_column_name(name, quotes=False)}
+    result = {"name": sql_utils.safe_column_name(name, quotes=False)}
 
     if 'array' in property_type:
         try:
-            items_type = column_type_avro(name, schema_property['items'])
+            items_type = column_schema_avro(name, schema_property['items'])
             result_type = {
                 'type': 'array',
                 'items': items_type['type']}
@@ -117,7 +118,7 @@ def column_type_avro(name, schema_property):
             result_type = 'string'
     elif 'object' in property_type:
         items_types = [
-            column_type_avro(col, schema_property)
+            column_schema_avro(col, schema_property)
             for col, schema_property in schema_property.get('properties', {}).items()]
 
         if items_types:
@@ -155,16 +156,6 @@ def column_type_avro(name, schema_property):
     return result
 
 
-def safe_column_name(name, quotes=False):
-    name = name.replace('`', '')
-    pattern = '[^a-zA-Z0-9_]'
-    name = re.sub(pattern, '_', name)
-    if quotes:
-        return '`{}`'.format(name).lower()
-    else:
-        return '{}'.format(name).lower()
-
-
 def is_unstructured_object(props):
     """Check if property is object and it has no properties."""
     return 'object' in props['type'] and not props.get('properties')
@@ -174,93 +165,12 @@ def camelize(string):
     return re.sub(r"(?:^|_)(.)", lambda m: m.group(1).upper(), string)
 
 
-def flatten_key(k, parent_key, sep):
-    full_key = parent_key + [k]
-    inflected_key = full_key.copy()
-    reducer_index = 0
-    while len(sep.join(inflected_key)) >= 255 and reducer_index < len(inflected_key):
-        reduced_key = re.sub(r'[a-z]', '', camelize(inflected_key[reducer_index]))
-        inflected_key[reducer_index] = \
-            (reduced_key if len(reduced_key) > 1 else inflected_key[reducer_index][0:3]).lower()
-        reducer_index += 1
-
-    return sep.join(inflected_key)
-
-
-def flatten_schema(d, parent_key=[], sep='__', level=0, max_level=0):
-    items = []
-
-    if 'properties' not in d:
-        return {}
-
-    for k, v in d['properties'].items():
-        k = safe_column_name(k, quotes=False)
-        new_key = flatten_key(k, parent_key, sep)
-        if 'type' in v.keys():
-            if 'object' in v['type'] and 'properties' in v and level < max_level:
-                items.extend(flatten_schema(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
-            else:
-                items.append((new_key, v))
-        else:
-            if len(v.values()) > 0:
-                if list(v.values())[0][0]['type'] == 'string':
-                    list(v.values())[0][0]['type'] = ['null', 'string']
-                    items.append((new_key, list(v.values())[0][0]))
-                elif list(v.values())[0][0]['type'] == 'array':
-                    list(v.values())[0][0]['type'] = ['null', 'array']
-                    items.append((new_key, list(v.values())[0][0]))
-                elif list(v.values())[0][0]['type'] == 'object':
-                    list(v.values())[0][0]['type'] = ['null', 'object']
-                    items.append((new_key, list(v.values())[0][0]))
-
-    key_func = lambda item: item[0]
-    sorted_items = sorted(items, key=key_func)
-    for k, g in itertools.groupby(sorted_items, key=key_func):
-        if len(list(g)) > 1:
-            raise ValueError('Duplicate column name produced in schema: {}'.format(k))
-
-    return dict(sorted_items)
-
-
-def flatten_record(d, parent_key=[], sep='__', level=0, max_level=0):
-    items = []
-    for k, v in d.items():
-        k = safe_column_name(k, quotes=False)
-        new_key = flatten_key(k, parent_key, sep)
-        if isinstance(v, MutableMapping) and level < max_level:
-            items.extend(flatten_record(v, parent_key + [k], sep=sep, level=level+1, max_level=max_level).items())
-        else:
-            if type(v) is dict:
-                # Need to fix the keys of nested dicts, lowercase etc
-                items.append((new_key, flatten_record(v, level = 0, max_level=0)))
-            else:
-                items.append((new_key, v))
-    return dict(items)
-
-
 def primary_column_names(stream_schema_message):
-    return [safe_column_name(p) for p in stream_schema_message['key_properties']]
+    try:
+        return [sql_utils.safe_column_name(p) for p in stream_schema_message['key_properties']]
+    except KeyError:
+        return []
 
-def stream_name_to_dict(stream_name, separator='-'):
-    catalog_name = None
-    schema_name = None
-    table_name = stream_name
-
-    # Schema and table name can be derived from stream if it's in <schema_name>-<table_name> format
-    s = stream_name.split(separator)
-    if len(s) == 2:
-        schema_name = s[0]
-        table_name = s[1]
-    if len(s) > 2:
-        catalog_name = s[0]
-        schema_name = s[1]
-        table_name = '_'.join(s[2:])
-
-    return {
-        'catalog_name': catalog_name,
-        'schema_name': schema_name,
-        'table_name': table_name
-    }
 
 # pylint: disable=too-many-public-methods,too-many-instance-attributes
 class DbSync:
@@ -322,7 +232,7 @@ class DbSync:
             config_schema_mapping = self.connection_config.get('schema_mapping', {})
 
             stream_name = stream_schema_message['stream']
-            stream_schema_name = stream_name_to_dict(stream_name)['schema_name']
+            stream_schema_name = stream_utils.stream_name_to_dict(stream_name)['schema_name']
             if config_schema_mapping and stream_schema_name in config_schema_mapping:
                 self.schema_name = config_schema_mapping[stream_schema_name].get('target_schema')
             elif config_default_target_schema:
@@ -352,7 +262,12 @@ class DbSync:
                 self.grantees = config_schema_mapping[stream_schema_name].get('target_schema_select_permissions', self.grantees)
 
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
-            self.flatten_schema = flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
+            self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
+            self.bigquery_ref = BigQueryRefHelper(
+                                           self.connection_config['project_id'],
+                                           self.schema_name,
+                                           self.connection_config.get('temp_schema')
+                                       )
             self.renamed_columns = {}
 
     def query(self, query, params=[]):
@@ -383,23 +298,13 @@ class DbSync:
 
         return query_job
 
-    def table_name(self, stream_name, is_temporary=False, without_schema=False):
-        stream_dict = stream_name_to_dict(stream_name)
-        pattern = '[^a-zA-Z0-9]'
-        table_name = re.sub(pattern, '_', stream_dict['table_name']).lower()
-
-        if is_temporary:
-            table_name =  '{}_temp'.format(table_name)
-
-        if without_schema:
-            return '{}'.format(table_name)
-        else:
-            return '{}.{}'.format(self.schema_name, table_name)
+    def get_table_from_ref(self, table_ref: bigquery.TableReference) -> bigquery.Table:
+        return self.client.get_table(table_ref)
 
     def record_primary_key_string(self, record):
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
-        flatten = flatten_record(record, max_level=self.data_flattening_max_level)
+        flatten = flattening.flatten_record(record, max_level=self.data_flattening_max_level)
         primary_keys = [safe_column_name(p, quotes=False) for p in self.stream_schema_message['key_properties']]
         try:
             key_props = [str(flatten[p]) for p in primary_keys]
@@ -419,7 +324,7 @@ class DbSync:
                  self.schema_name,
                  ),
              "name": self.stream_schema_message['stream'],
-             "fields": [column_type_avro(name, c) for name, c in self.flatten_schema.items()]}
+             "fields": [column_schema_avro(name, c) for name, c in self.flatten_schema.items()]}
 
         if re.search(pattern, schema['name']):
             schema["alias"] = schema['name']
@@ -431,7 +336,7 @@ class DbSync:
     # TODO: improve performance
     def records_to_avro(self, records):
         for record in records:
-            flatten = flatten_record(record, max_level=self.data_flattening_max_level)
+            flatten = flattening.flatten_record(record, max_level=self.data_flattening_max_level)
             result = {}
             for name, props in self.flatten_schema.items():
                 if name in flatten:
@@ -461,109 +366,55 @@ class DbSync:
                     result[name] = None
             yield result
 
+    def check_partition_pruning_possible(self, table: bigquery.Table) -> bool:
+        pruning_possible = False
+        partitioning = sql_utils.get_table_partitioning(table)
+        if partitioning is not None and self.connection_config.get('use_partition_pruning', False):
+            query = check_partition_pruning_possible_sql(table)
+            pruning_possible = next(self.client.query(query).result())[0]
+        return pruning_possible
+
     def load_avro(self, f, count):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
-        logger.info("Loading {} rows into '{}'".format(count, self.table_name(stream, False)))
+        target_table_ref = self.bigquery_ref(stream, is_temporary=False)
+        target_table = self.get_table_from_ref(target_table_ref)
+        logger.info("Loading {} rows into '{}'"target_.format(count, table_ref.table_id))
 
         project_id = self.connection_config['project_id']
-        # TODO: make temp table creation and DML atomic with merge
-        temp_table = self.table_name(stream_schema_message['stream'], is_temporary=True, without_schema=True)
+        temp_table_ref = self.bigquery_ref(stream, is_temporary=True)
+        temp_table = self.get_table_from_ref(temp_table_ref)
+
 
         logger.info("INSERTING INTO {} ({})".format(
-            temp_table,
+            temp_table.table_id,
             ', '.join(self.column_names())
         ))
 
         dataset_id = self.connection_config.get('temp_schema', self.schema_name).strip()
-        table_ref = bigquery.DatasetReference(project_id, dataset_id).table(temp_table)
         job_config = bigquery.LoadJobConfig()
         job_config.source_format = bigquery.SourceFormat.AVRO
         job_config.use_avro_logical_types = True
         job_config.write_disposition = 'WRITE_TRUNCATE'
-        job = self.client.load_table_from_file(f, table_ref, job_config=job_config)
+        job = self.client.load_table_from_file(f, temp_table_ref, job_config=job_config)
         job.result()
 
-        if len(self.stream_schema_message['key_properties']) > 0:
-            query = self.update_from_temp_table(temp_table)
+        pk_columns_names = primary_column_names(self.stream_schema_message)
+        if pk_columns_names:
+            # TODO: make temp table creation and DML atomic with merge
+            query = sql_utils.merge_from_table_sql(temp_table,
+                                                   target_table,
+                                                   self.column_names,
+                                                   self.renamed_columns,
+                                                   pk_columns_names,
+                                                   self.connection_config.get('use_partition_pruning', False))
         else:
-            query = self.insert_from_temp_table(temp_table)
-        drop_temp_query = self.drop_temp_table(temp_table)
+            query = sql_utils.insert_from_table_sql(temp_table,
+                                                    target_table,
+                                                    self.column_names)
+        drop_temp_query = sql_utils.drop_table_sql(temp_table)
         results = self.query([query, drop_temp_query])
         logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))
-
-    def drop_temp_table(self, temp_table):
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
-
-        return "DROP TABLE IF EXISTS {}.{}".format(
-            temp_schema,
-            temp_table
-        )
-
-    def insert_from_temp_table(self, temp_table):
-        stream_schema_message = self.stream_schema_message
-        columns = self.column_names()
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
-        table = self.table_name(stream_schema_message['stream'])
-
-        return """INSERT INTO {} ({})
-                (SELECT s.* FROM {}.{} s)
-                """.format(
-            table,
-            ', '.join(columns),
-            temp_schema,
-            temp_table
-        )
-
-    def update_from_temp_table(self, temp_table):
-        stream_schema_message = self.stream_schema_message
-        columns = self.column_names()
-        table = self.table_name(stream_schema_message['stream'])
-        table_without_schema = self.table_name(stream_schema_message['stream'], without_schema=True)
-        temp_schema = self.connection_config.get('temp_schema', self.schema_name)
-
-        result = """MERGE `{table}` t
-        USING `{temp_schema}`.`{temp_table}` s
-        ON {primary_key_condition}
-        WHEN MATCHED THEN
-            UPDATE SET {set_values}
-        WHEN NOT MATCHED THEN
-            INSERT ({renamed_cols}) VALUES ({cols})
-        """.format(
-            table=table,
-            temp_schema=temp_schema,
-            temp_table=temp_table,
-            primary_key_condition=self.primary_key_condition(),
-            set_values=', '.join(
-                '{}=s.{}'.format(
-                    safe_column_name(self.renamed_columns.get(c, c), quotes=True),
-                    safe_column_name(c, quotes=True))
-                for c in columns),
-            renamed_cols=', '.join(
-                safe_column_name(self.renamed_columns.get(c, c), quotes=True)
-                for c in columns),
-            cols=', '.join(safe_column_name(c,quotes=True) for c in self.column_names()))
-        return result
-
-    def primary_key_condition(self):
-        stream_schema_message = self.stream_schema_message
-        names = primary_column_names(stream_schema_message)
-        return ' AND '.join(
-            ['s.{} = t.{}'
-                 .format(
-                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
-                     safe_column_name(c, quotes=True))
-             for c in names])
-
-    def primary_key_null_condition(self, right_table):
-        stream_schema_message = self.stream_schema_message
-        names = primary_column_names(stream_schema_message)
-        return ' AND '.join(
-            ['{}.{} is null'
-                 .format(
-                     right_table,
-                     safe_column_name(c, quotes=True))
-             for c in names])
 
     def column_names(self):
         return [safe_column_name(name) for name in self.flatten_schema]
@@ -576,7 +427,7 @@ class DbSync:
         table_ref = bigquery.DatasetReference(project_id, self.schema_name).table(table_name)
 
         schema = [
-            column_type(
+            column_schema(
                 name,
                 schema
             )
@@ -648,7 +499,7 @@ class DbSync:
         columns = self.get_table_columns(table_name)
 
         columns_to_add = [
-            column_type(name, properties_schema)
+            column_schema(name, properties_schema)
             for (name, properties_schema) in self.flatten_schema.items()
             if safe_column_name(name, quotes=False) not in columns
         ]
@@ -656,10 +507,10 @@ class DbSync:
         self.add_columns(columns_to_add, stream)
 
         columns_to_replace = [
-            column_type(name, properties_schema)
+            column_schema(name, properties_schema)
             for (name, properties_schema) in self.flatten_schema.items()
             if name.lower() in columns and
-               columns[name.lower()] != column_type(name, properties_schema)
+               columns[name.lower()] != column_schema(name, properties_schema)
         ]
 
         for field in columns_to_replace:
