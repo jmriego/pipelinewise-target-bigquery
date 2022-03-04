@@ -511,6 +511,10 @@ class DbSync:
             else:
                 delete_sql += "UPDATE SET `_sdc_deleted_at`=s.`_sdc_deleted_at`"
 
+        insert_condition_sql = ""
+        if self.hard_delete:
+            insert_condition_sql = "AND `_sdc_deleted_at` IS NULL"
+
         return """
         {range_for_upsert}
         -- run the merge statement
@@ -520,8 +524,9 @@ class DbSync:
         {deleted}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
-        WHEN NOT MATCHED THEN
-            INSERT ({renamed_cols}) VALUES ({cols})
+        WHEN NOT MATCHED
+            {insert_condition}
+            THEN INSERT ({renamed_cols}) VALUES ({cols})
         """.format(
             range_for_upsert=range_for_upsert_sql,
             target=f'{dest.dataset_id}.{dest.table_id}',
@@ -534,6 +539,7 @@ class DbSync:
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
                     safe_column_name(c, quotes=True))
                 for c in columns),
+            insert_condition=insert_condition_sql,
             renamed_cols=', '.join(
                 safe_column_name(self.renamed_columns.get(c, c), quotes=True)
                 for c in columns),
