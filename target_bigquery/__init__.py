@@ -221,8 +221,13 @@ def persist_lines(config, lines) -> None:
 
             key_properties[stream] = o['key_properties']
 
-            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
-                stream_to_sync[stream] = DbSync(config, add_metadata_columns_to_schema(o))
+            hard_delete = hard_delete_mapping.get(stream, default_hard_delete)
+            if config.get('add_metadata_columns') or hard_delete:
+                stream_to_sync[stream] = DbSync(
+                    config,
+                    add_metadata_columns_to_schema(o),
+                    hard_delete=hard_delete
+                )
             else:
                 stream_to_sync[stream] = DbSync(config, o)
 

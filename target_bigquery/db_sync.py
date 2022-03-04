@@ -248,7 +248,7 @@ def stream_name_to_dict(stream_name, separator='-'):
 
 # pylint: disable=too-many-public-methods,too-many-instance-attributes
 class DbSync:
-    def __init__(self, connection_config, stream_schema_message=None):
+    def __init__(self, connection_config, stream_schema_message=None, hard_delete=False):
         """
             connection_config:      BigQuery connection details
 
@@ -269,6 +269,7 @@ class DbSync:
         """
         self.connection_config = connection_config
         self.stream_schema_message = stream_schema_message
+        self.hard_delete = hard_delete
 
         # Validate connection configuration
         config_errors = validate_config(connection_config)
@@ -498,12 +499,25 @@ class DbSync:
             f' AND t.`{self.renamed_columns.get(field, field)}` BETWEEN min_partition AND max_partition'
         )
 
+        delete_sql = ''
+        if '_sdc_deleted_at' in columns:
+            delete_sql = (
+                "WHEN MATCHED\n"
+                "    AND s.`_sdc_deleted_at` IS NOT NULL\n"
+                "    THEN "
+            )
+            if self.hard_delete:
+                delete_sql += "DELETE"
+            else:
+                delete_sql += "UPDATE SET `_sdc_deleted_at`=s.`_sdc_deleted_at`"
+
         return """
         {range_for_upsert}
         -- run the merge statement
         MERGE `{target}` t
         USING `{source}` s
         ON {primary_key_condition}{pruning}
+        {deleted}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
         WHEN NOT MATCHED THEN
@@ -514,6 +528,7 @@ class DbSync:
             source=f'{src.dataset_id}.{src.table_id}',
             primary_key_condition=self.primary_key_condition(),
             pruning=pruning_sql,
+            deleted=delete_sql,
             set_values=', '.join(
                 '{}=s.{}'.format(
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
