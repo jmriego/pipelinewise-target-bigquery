@@ -377,10 +377,6 @@ def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=F
     if row_count[stream] > 0:
         flush_records(stream, records_to_load, row_count[stream], db_sync)
 
-        # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
-        if delete_rows:
-            db_sync.delete_rows(stream)
-
 
 def flush_records(stream, records_to_load, row_count, db_sync):
     # Seek to the beginning of the file and load
