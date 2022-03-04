@@ -248,7 +248,7 @@ def stream_name_to_dict(stream_name, separator='-'):
 
 # pylint: disable=too-many-public-methods,too-many-instance-attributes
 class DbSync:
-    def __init__(self, connection_config, stream_schema_message=None):
+    def __init__(self, connection_config, stream_schema_message=None, hard_delete=False):
         """
             connection_config:      BigQuery connection details
 
@@ -269,6 +269,7 @@ class DbSync:
         """
         self.connection_config = connection_config
         self.stream_schema_message = stream_schema_message
+        self.hard_delete = hard_delete
 
         # Validate connection configuration
         config_errors = validate_config(connection_config)
@@ -498,27 +499,47 @@ class DbSync:
             f' AND t.`{self.renamed_columns.get(field, field)}` BETWEEN min_partition AND max_partition'
         )
 
+        delete_sql = ''
+        if '_sdc_deleted_at' in columns:
+            delete_sql = (
+                "WHEN MATCHED\n"
+                "    AND s.`_sdc_deleted_at` IS NOT NULL\n"
+                "    THEN "
+            )
+            if self.hard_delete:
+                delete_sql += "DELETE"
+            else:
+                delete_sql += "UPDATE SET `_sdc_deleted_at`=s.`_sdc_deleted_at`"
+
+        insert_condition_sql = ""
+        if self.hard_delete:
+            insert_condition_sql = "AND `_sdc_deleted_at` IS NULL"
+
         return """
         {range_for_upsert}
         -- run the merge statement
         MERGE `{target}` t
         USING `{source}` s
         ON {primary_key_condition}{pruning}
+        {deleted}
         WHEN MATCHED THEN
             UPDATE SET {set_values}
-        WHEN NOT MATCHED THEN
-            INSERT ({renamed_cols}) VALUES ({cols})
+        WHEN NOT MATCHED
+            {insert_condition}
+            THEN INSERT ({renamed_cols}) VALUES ({cols})
         """.format(
             range_for_upsert=range_for_upsert_sql,
             target=f'{dest.dataset_id}.{dest.table_id}',
             source=f'{src.dataset_id}.{src.table_id}',
             primary_key_condition=self.primary_key_condition(),
             pruning=pruning_sql,
+            deleted=delete_sql,
             set_values=', '.join(
                 '{}=s.{}'.format(
                     safe_column_name(self.renamed_columns.get(c, c), quotes=True),
                     safe_column_name(c, quotes=True))
                 for c in columns),
+            insert_condition=insert_condition_sql,
             renamed_cols=', '.join(
                 safe_column_name(self.renamed_columns.get(c, c), quotes=True)
                 for c in columns),
@@ -584,12 +605,6 @@ class DbSync:
                 grant_method(schema, grantee)
         elif isinstance(grantees, str):
             grant_method(schema, grantees)
-
-    def delete_rows(self, stream):
-        table = self.table_ref(stream)
-        query = f"DELETE FROM `{table.dataset_id}.{table.table_id}` WHERE _sdc_deleted_at IS NOT NULL"
-        logger.info("Deleting rows from '{}' table... {}".format(table.table_id, query))
-        logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
     def create_schema_if_not_exists(self):
         schema_name = self.schema_name

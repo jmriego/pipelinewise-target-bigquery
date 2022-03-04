@@ -221,8 +221,13 @@ def persist_lines(config, lines) -> None:
 
             key_properties[stream] = o['key_properties']
 
-            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
-                stream_to_sync[stream] = DbSync(config, add_metadata_columns_to_schema(o))
+            hard_delete = hard_delete_mapping.get(stream, default_hard_delete)
+            if config.get('add_metadata_columns') or hard_delete:
+                stream_to_sync[stream] = DbSync(
+                    config,
+                    add_metadata_columns_to_schema(o),
+                    hard_delete=hard_delete
+                )
             else:
                 stream_to_sync[stream] = DbSync(config, o)
 
@@ -289,8 +294,6 @@ def flush_streams(
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
-    default_hard_delete = config.get("hard_delete", DEFAULT_HARD_DELETE)
-    hard_delete_mapping = config.get("hard_delete_mapping", {})
 
     # Parallelism 0 means auto parallelism:
     #
@@ -323,9 +326,6 @@ def flush_streams(
                             'records_to_load': streams[stream],
                             'row_count': row_count,
                             'db_sync': stream_to_sync[stream],
-                            'delete_rows': hard_delete_mapping.get(
-                                stream, default_hard_delete
-                            ),
                         },
                     )
                 )
@@ -339,7 +339,6 @@ def flush_streams(
             records_to_load=streams[streams_to_flush[0]],
             row_count=row_count,
             db_sync=stream_to_sync[streams_to_flush[0]],
-            delete_rows=hard_delete_mapping.get(streams_to_flush[0], default_hard_delete),
         )
 
     # reset flushed stream records to empty to avoid flushing same records
@@ -367,14 +366,10 @@ def flush_streams(
     return flushed_state, flushed_timestamps
 
 
-def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=False):
+def load_stream_batch(stream, records_to_load, row_count, db_sync):
     # Load into bigquery
     if row_count[stream] > 0:
         flush_records(stream, records_to_load, row_count[stream], db_sync)
-
-        # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
-        if delete_rows:
-            db_sync.delete_rows(stream)
 
 
 def flush_records(stream, records_to_load, row_count, db_sync):
