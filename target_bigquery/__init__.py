@@ -294,8 +294,6 @@ def flush_streams(
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
-    default_hard_delete = config.get("hard_delete", DEFAULT_HARD_DELETE)
-    hard_delete_mapping = config.get("hard_delete_mapping", {})
 
     # Parallelism 0 means auto parallelism:
     #
@@ -328,9 +326,6 @@ def flush_streams(
                             'records_to_load': streams[stream],
                             'row_count': row_count,
                             'db_sync': stream_to_sync[stream],
-                            'delete_rows': hard_delete_mapping.get(
-                                stream, default_hard_delete
-                            ),
                         },
                     )
                 )
@@ -344,7 +339,6 @@ def flush_streams(
             records_to_load=streams[streams_to_flush[0]],
             row_count=row_count,
             db_sync=stream_to_sync[streams_to_flush[0]],
-            delete_rows=hard_delete_mapping.get(streams_to_flush[0], default_hard_delete),
         )
 
     # reset flushed stream records to empty to avoid flushing same records
@@ -372,7 +366,7 @@ def flush_streams(
     return flushed_state, flushed_timestamps
 
 
-def load_stream_batch(stream, records_to_load, row_count, db_sync, delete_rows=False):
+def load_stream_batch(stream, records_to_load, row_count, db_sync):
     # Load into bigquery
     if row_count[stream] > 0:
         flush_records(stream, records_to_load, row_count[stream], db_sync)
