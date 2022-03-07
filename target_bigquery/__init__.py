@@ -118,7 +118,11 @@ def persist_lines(config, lines) -> None:
                             "or more) Try removing 'multipleOf' methods from JSON schema.")
                     raise RecordValidationException(f"Record does not pass schema validation. RECORD: {o['record']}")
 
-            if config.get('add_metadata_columns') or hard_delete_mapping.get(stream, default_hard_delete):
+            if (
+                config.get('add_metadata_columns') or
+                config.get('append_only') or
+                hard_delete_mapping.get(stream, default_hard_delete)
+            ):
                 record = stream_utils.add_metadata_values_to_record(o)
             else:
                 record = stream_utils.remove_metadata_values_from_record(
@@ -222,7 +226,7 @@ def persist_lines(config, lines) -> None:
             key_properties[stream] = o['key_properties']
 
             hard_delete = hard_delete_mapping.get(stream, default_hard_delete)
-            if config.get('add_metadata_columns') or hard_delete:
+            if config.get('add_metadata_columns') or config.get('append_only') or hard_delete:
                 stream_to_sync[stream] = DbSync(
                     config,
                     add_metadata_columns_to_schema(o),

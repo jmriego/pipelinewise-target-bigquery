@@ -446,7 +446,7 @@ class DbSync:
 
         temp_table = self.client.get_table(temp_table)
 
-        if len(self.stream_schema_message['key_properties']) > 0:
+        if len(self.stream_schema_message['key_properties']) > 0 and not self.connection_config.get('append_only', False):
             query = self.get_merge_from_table_sql(temp_table, target_table)
         else:
             query = self.get_insert_from_table_sql(temp_table, target_table)
