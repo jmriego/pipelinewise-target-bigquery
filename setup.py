@@ -24,7 +24,7 @@ setup(name="pipelinewise-target-bigquery",
       ],
       extras_require={
           "test": [
-              'pytest==7.0.1',
+              'pytest==7.1.0',
               'pylint==2.12.2',
               'pytest-cov==3.0.0',
           ]
