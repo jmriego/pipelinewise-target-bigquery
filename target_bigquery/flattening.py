@@ -1,5 +1,6 @@
 import itertools
 from typing import MutableMapping
+from target_bigquery.sql_utils import safe_column_name
 
 
 def flatten_key(k, parent_key, sep):

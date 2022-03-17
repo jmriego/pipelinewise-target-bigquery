@@ -1,3 +1,5 @@
+from google.cloud import bigquery
+from typing import List, Tuple, Union, Dict
 import re
 
 def safe_column_name(name: str, quotes: bool = False) -> str:
@@ -10,8 +12,8 @@ def safe_column_name(name: str, quotes: bool = False) -> str:
         return '{}'.format(name).lower()
 
 
-def drop_table_sql(table_ref: bigquery.TableReference) -> str:
-    return f"DROP TABLE IF EXISTS `{table_ref.dataset_id}.{table_ref.table_id}`"
+def drop_table_sql(table: bigquery.Table) -> str:
+    return f"DROP TABLE IF EXISTS `{table.dataset_id}.{table.table_id}`"
 
 
 def partition_key_sql(partitioning: Union[bigquery.TimePartitioning,
@@ -28,8 +30,8 @@ def partition_key_sql(partitioning: Union[bigquery.TimePartitioning,
 
 
 def get_table_partitioning(table: bigquery.Table,
-                           ) -> partitioning: Union[bigquery.TimePartitioning,
-                                                    bigquery.RangePartitioning]
+                           ) -> Union[bigquery.TimePartitioning,
+                                      bigquery.RangePartitioning]:
     return table.time_partitioning or table.range_partitioning
 
 
@@ -81,7 +83,7 @@ def insert_from_table_sql(src: bigquery.Table,
 def merge_from_table_sql(src: bigquery.Table,
                          dest: bigquery.Table,
                          columns: List[str],
-                         renamed_columns: Dict[str, str]
+                         renamed_columns: Dict[str, str],
                          primary_key_column_names: List[str],
                          allow_partitioning: bool = False) -> str:
 

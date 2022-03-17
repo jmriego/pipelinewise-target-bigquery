@@ -13,7 +13,7 @@ from google.cloud.exceptions import Conflict
 
 from target_bigquery import flattening
 from target_bigquery import stream_utils
-from target_bigquery.table_ref import BigQueryRefHelper
+from target_bigquery.bigquery_ref_helper import BigQueryRefHelper
 from target_bigquery import sql_utils
 
 logger = singer.get_logger()
@@ -263,7 +263,7 @@ class DbSync:
 
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
             self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
-            self.bigquery_ref = BigQueryRefHelper(
+            self.ref_helper = BigQueryRefHelper(
                                            self.connection_config['project_id'],
                                            self.schema_name,
                                            self.connection_config.get('temp_schema')
@@ -297,9 +297,6 @@ class DbSync:
         query_job.result()
 
         return query_job
-
-    def get_table_from_ref(self, table_ref: bigquery.TableReference) -> bigquery.Table:
-        return self.client.get_table(table_ref)
 
     def record_primary_key_string(self, record):
         if len(self.stream_schema_message['key_properties']) == 0:
@@ -377,21 +374,20 @@ class DbSync:
     def load_avro(self, f, count):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
-        target_table_ref = self.bigquery_ref(stream, is_temporary=False)
-        target_table = self.get_table_from_ref(target_table_ref)
-        logger.info("Loading {} rows into '{}'"target_.format(count, table_ref.table_id))
+        target_table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
+        target_table = self.client.get_table(target_table_ref)
+        logger.info("Loading {} rows into '{}'".format(count, table_ref.table_id))
 
         project_id = self.connection_config['project_id']
-        temp_table_ref = self.bigquery_ref(stream, is_temporary=True)
-        temp_table = self.get_table_from_ref(temp_table_ref)
+        temp_table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=True)
+        temp_table = self.client.get_table(temp_table_ref)
 
 
         logger.info("INSERTING INTO {} ({})".format(
-            temp_table.table_id,
+            temp_table_ref.table_id,
             ', '.join(self.column_names())
         ))
 
-        dataset_id = self.connection_config.get('temp_schema', self.schema_name).strip()
         job_config = bigquery.LoadJobConfig()
         job_config.source_format = bigquery.SourceFormat.AVRO
         job_config.use_avro_logical_types = True

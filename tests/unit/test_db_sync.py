@@ -1,6 +1,8 @@
 import unittest
 
 from target_bigquery import db_sync
+from target_bigquery import flattening
+from target_bigquery import stream_utils
 
 
 class TestDBSync(unittest.TestCase):
@@ -45,10 +47,10 @@ class TestDBSync(unittest.TestCase):
         }
         self.assertEqual(len(validator(config_with_schema_mapping)), 0)
 
-    def test_column_type_mapping(self):
+    def test_column_schema_mapping(self):
         """Test JSON type to BigQuery column type mappings"""
         def mapper(schema_property):
-            field = db_sync.column_type('dummy', schema_property)
+            field = db_sync.column_schema('dummy', schema_property)
             return field.field_type, field.mode
 
         # Incoming JSON schema types
@@ -114,37 +116,37 @@ class TestDBSync(unittest.TestCase):
         """Test identifying catalog, schema and table names from fully qualified stream and table names"""
         # Singer stream name format (Default '-' separator)
         self.assertEqual(
-            db_sync.stream_name_to_dict('my_table'),
+            stream_utils.stream_name_to_dict('my_table'),
             {"catalog_name": None, "schema_name": None, "table_name": "my_table"})
 
         # Singer stream name format (Default '-' separator)
         self.assertEqual(
-            db_sync.stream_name_to_dict('my_schema-my_table'),
+            stream_utils.stream_name_to_dict('my_schema-my_table'),
             {"catalog_name": None, "schema_name": "my_schema", "table_name": "my_table"})
 
         # Singer stream name format (Default '-' separator)
         self.assertEqual(
-            db_sync.stream_name_to_dict('my_catalog-my_schema-my_table'),
+            stream_utils.stream_name_to_dict('my_catalog-my_schema-my_table'),
             {"catalog_name": "my_catalog", "schema_name": "my_schema", "table_name": "my_table"})
 
         # BigQuery table format (Custom '.' separator)
         self.assertEqual(
-            db_sync.stream_name_to_dict('my_table', separator='.'),
+            stream_utils.stream_name_to_dict('my_table', separator='.'),
             {"catalog_name": None, "schema_name": None, "table_name": "my_table"})
 
         # BigQuery table format (Custom '.' separator)
         self.assertEqual(
-            db_sync.stream_name_to_dict('my_schema.my_table', separator='.'),
+            stream_utils.stream_name_to_dict('my_schema.my_table', separator='.'),
             {"catalog_name": None, "schema_name": "my_schema", "table_name": "my_table"})
 
         # BigQuery table format (Custom '.' separator)
         self.assertEqual(
-            db_sync.stream_name_to_dict('my_catalog.my_schema.my_table', separator='.'),
+            stream_utils.stream_name_to_dict('my_catalog.my_schema.my_table', separator='.'),
             {"catalog_name": "my_catalog", "schema_name": "my_schema", "table_name": "my_table"})
 
     def test_flatten_schema(self):
         """Test flattening of SCHEMA messages"""
-        flatten_schema = db_sync.flatten_schema
+        flatten_schema = flattening.flatten_schema
 
         # Schema with no object properties should be empty dict
         schema_with_no_properties = {"type": "object"}
@@ -237,7 +239,7 @@ class TestDBSync(unittest.TestCase):
 
     def test_flatten_record(self):
         """Test flattening of RECORD messages"""
-        flatten_record = db_sync.flatten_record
+        flatten_record = flattening.flatten_record
 
         empty_record = {}
         # Empty record should be empty dict
@@ -308,7 +310,7 @@ class TestDBSync(unittest.TestCase):
 
     def test_nested_keys(self):
         """Test recursive renaming of keys in RECORD messages"""
-        flatten_record = db_sync.flatten_record
+        flatten_record = flattening.flatten_record
 
         empty_record = {}
         # Empty record should be empty dict
