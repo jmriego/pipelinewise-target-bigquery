@@ -5,7 +5,6 @@ import re
 import time
 import datetime
 from decimal import Decimal, getcontext
-from typing import MutableMapping
 
 from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField
@@ -298,7 +297,7 @@ class DbSync:
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
         flatten = flattening.flatten_record(record, max_level=self.data_flattening_max_level)
-        primary_keys = [safe_column_name(p, quotes=False) for p in self.stream_schema_message['key_properties']]
+        primary_keys = [sql_utils.safe_column_name(p, quotes=False) for p in self.stream_schema_message['key_properties']]
         try:
             key_props = [str(flatten[p]) for p in primary_keys]
         except Exception as exc:
@@ -363,7 +362,7 @@ class DbSync:
         pruning_possible = False
         partitioning = sql_utils.get_table_partitioning(table)
         if partitioning is not None and self.connection_config.get('use_partition_pruning', False):
-            query = check_partition_pruning_possible_sql(table)
+            query = sql_utils.check_partition_pruning_possible_sql(table)
             pruning_possible = next(self.client.query(query).result())[0]
         return pruning_possible
 
@@ -372,9 +371,8 @@ class DbSync:
         stream = stream_schema_message['stream']
         target_table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
         target_table = self.client.get_table(target_table_ref)
-        logger.info("Loading {} rows into '{}'".format(count, table_ref.table_id))
+        logger.info("Loading {} rows into '{}'".format(count, target_table_ref.table_id))
 
-        project_id = self.connection_config['project_id']
         temp_table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=True)
         temp_table = self.client.get_table(temp_table_ref)
 
@@ -409,14 +407,13 @@ class DbSync:
         logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))
 
     def column_names(self):
-        return [safe_column_name(name) for name in self.flatten_schema]
+        return [sql_utils.safe_column_name(name) for name in self.flatten_schema]
 
     def create_table(self, is_temporary=False):
         stream_schema_message = self.stream_schema_message
+        stream = stream_schema_message['stream']
 
-        project_id = self.connection_config['project_id']
-        table_name =  self.table_name(stream_schema_message['stream'], is_temporary, without_schema=True)
-        table_ref = bigquery.DatasetReference(project_id, self.schema_name).table(table_name)
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary)
 
         schema = [
             column_schema(
@@ -443,7 +440,7 @@ class DbSync:
         self.query(query)
 
     @classmethod
-    def grant_privilege(self, schema, grantees, grant_method):
+    def grant_privilege(cls, schema, grantees, grant_method):
         if isinstance(grantees, list):
             for grantee in grantees:
                 grant_method(schema, grantee)
@@ -451,9 +448,13 @@ class DbSync:
             grant_method(schema, grantees)
 
     def delete_rows(self, stream):
-        table = self.table_name(stream, False)
-        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
-        logger.info("Deleting rows from '{}' table... {}".format(table, query))
+        stream_schema_message = self.stream_schema_message
+        stream = stream_schema_message['stream']
+
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
+        table_id = table_ref.table_id
+        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table_id)
+        logger.info("Deleting rows from '{}' table... {}".format(table_id, query))
         logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
     def create_schema_if_not_exists(self):
@@ -476,24 +477,20 @@ class DbSync:
         api_repr['name'] = alias
         return SchemaField.from_api_repr(api_repr)
 
-    def get_table_columns(self, table_name):
-        project_id = self.connection_config['project_id']
-        table_name = self.table_name(table_name, without_schema=True)
-        table_ref = bigquery.Dataset(f'{project_id}.{self.schema_name}').table(table_name)
-        table = self.client.get_table(table_ref)  # API request
-
+    def get_table_columns(self, table_ref: bigquery.TableReference):
+        table = self.client.get_table(table_ref)
         return {field.name: field for field in table.schema}
 
     def update_columns(self):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
-        table_name = self.table_name(stream, without_schema=True)
-        columns = self.get_table_columns(table_name)
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
+        columns = self.get_table_columns(table_ref)
 
         columns_to_add = [
             column_schema(name, properties_schema)
             for (name, properties_schema) in self.flatten_schema.items()
-            if safe_column_name(name, quotes=False) not in columns
+            if sql_utils.safe_column_name(name, quotes=False) not in columns
         ]
 
         self.add_columns(columns_to_add, stream)
@@ -510,7 +507,7 @@ class DbSync:
 
 
     def version_column(self, field, stream):
-        column = safe_column_name(field.name, quotes=False)
+        column = sql_utils.safe_column_name(field.name, quotes=False)
         col_type_suffixes = {
             'timestamp': 'ti',
             'time': 'tm',
@@ -532,8 +529,10 @@ class DbSync:
 
         field_without_dt_suffix = re.sub(r"[0-9]{8}_[0-9]{4}", "", field_with_type_suffix)
 
-        table_name = self.table_name(stream, without_schema=True)
-        table_columns = self.get_table_columns(table_name)
+        stream_schema_message = self.stream_schema_message
+        stream = stream_schema_message['stream']
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
+        table_columns = self.get_table_columns(table_ref)
 
         # check if we already have this column in the table with a name like column_name__type_suffix
         for col, schemafield in table_columns.items():
@@ -552,13 +551,9 @@ class DbSync:
             self.renamed_columns[column] = field_with_type_suffix
 
     def add_columns(self, fields, stream):
-        project_id = self.connection_config['project_id']
-        table_name = self.table_name(stream, without_schema=True)
-
-        table_ref = bigquery.Dataset(
-            bigquery.DatasetReference(project_id, self.schema_name)
-        ).table(table_name)
-
+        stream_schema_message = self.stream_schema_message
+        stream = stream_schema_message['stream']
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
         table = self.client.get_table(table_ref)  # API request
 
         schema = table.schema[:]
@@ -571,8 +566,9 @@ class DbSync:
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
 
-        table_name_with_schema = self.table_name(stream)
+        table_name_with_schema = f'{table_ref.dataset_id}.{table_ref.table_id}'
         try:
             self.create_table()
             logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))

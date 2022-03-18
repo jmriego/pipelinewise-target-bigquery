@@ -58,14 +58,13 @@ def partition_pruning_sql(table: bigquery.Table) -> str:
     return f'{sub_clause} IN UNNEST(partitions_for_upsert)'
 
 
-def check_partition_pruning_possible_sql(table: bigquery.Table) -> bool:
+def check_partition_pruning_possible_sql(table: bigquery.Table) -> str:
     partitioning = get_table_partitioning(table)
-    if partitioning:
-        return (
-            'SELECT COUNT(*) = 0\n'
-            f'FROM `{table.dataset_id}.{table.table_id}`\n'
-            f'WHERE `{partitioning.field}` IS NULL'
-        )
+    return (
+        'SELECT COUNT(*) = 0\n'
+        f'FROM `{table.dataset_id}.{table.table_id}`\n'
+        f'WHERE `{partitioning.field}` IS NULL'
+    )
 
 
 def insert_from_table_sql(src: bigquery.Table,
@@ -88,11 +87,11 @@ def merge_from_table_sql(src: bigquery.Table,
                          allow_partitioning: bool = False) -> str:
 
     if allow_partitioning:
-        partitions_for_upsert_sql = partitions_for_upsert_sql(src)
-        partition_pruning_sql = partition_pruning_sql(src)
+        partitions_for_upsert = partitions_for_upsert_sql(src, renamed_columns)
+        partition_pruning = partition_pruning_sql(src)
     else:
-        partitions_for_upsert_sql = ''
-        partition_pruning_sql = ''
+        partitions_for_upsert = ''
+        partition_pruning = ''
 
     query = """
     {partitions_for_upsert}
@@ -106,11 +105,11 @@ def merge_from_table_sql(src: bigquery.Table,
     WHEN NOT MATCHED THEN
         INSERT ({renamed_cols}) VALUES ({cols})
     """.format(
-        partitions_for_upsert=partitions_for_upsert_sql,
+        partitions_for_upsert=partitions_for_upsert,
         target=f'{dest.dataset_id}.{dest.table_id}',
         source=f'{src.dataset_id}.{src.table_id}',
-        primary_key_condition=primary_key_condition(primary_key_column_names),
-        partition_pruning=('AND ' + partition_pruning_sql) if partition_pruning_sql else '',
+        primary_key_condition=primary_key_condition(primary_key_column_names, renamed_columns),
+        partition_pruning=('AND ' + partition_pruning) if partition_pruning else '',
         set_values=', '.join(
             '{}=s.{}'.format(
                 safe_column_name(renamed_columns.get(c, c), quotes=True),
