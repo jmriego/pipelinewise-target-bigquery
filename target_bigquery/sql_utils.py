@@ -16,16 +16,18 @@ def drop_table_sql(table: bigquery.Table) -> str:
     return f"DROP TABLE IF EXISTS `{table.dataset_id}.{table.table_id}`"
 
 
-def partition_key_sql(partitioning: Union[bigquery.TimePartitioning,
-                                          bigquery.RangePartitioning]
+def partition_key_sql(table: bigquery.Table,
+                      renamed_columns: Dict[str, str]
                       ) -> Tuple[str, str]:
 
+    partitioning = get_table_partitioning(table)
+    field = renamed_columns.get(partitioning.field, partitioning.field)
     if isinstance(partitioning, bigquery.TimePartitioning):
         field_type = 'TIMESTAMP'
-        sub_clause = f'TIMESTAMP_TRUNC({partitioning.field}, {partitioning.type_})'
+        sub_clause = f'TIMESTAMP_TRUNC({field}, {partitioning.type_})'
     else:
         field_type = 'INT64'
-        sub_clause = partitioning.field
+        sub_clause = field
     return field_type, sub_clause
 
 
@@ -38,9 +40,7 @@ def get_table_partitioning(table: bigquery.Table,
 def partitions_for_upsert_sql(src: bigquery.Table,
                               renamed_columns: Dict[str, str]
                               ) -> str:
-    partitioning = get_table_partitioning(table)
-    field = renamed_columns.get(partitioning.field, partitioning.field)
-    field_type, sub_clause = partition_key_sql(field, partitioning)
+    field_type, sub_clause = partition_key_sql(src, renamed_columns)
     return (
         '-- define partitions with updates\n'
         f'DECLARE partitions_for_upsert ARRAY<{field_type}>;\n'

@@ -1,6 +1,11 @@
 import itertools
+import re
 from typing import MutableMapping
 from target_bigquery.sql_utils import safe_column_name
+
+
+def camelize(string):
+    return re.sub(r"(?:^|_)(.)", lambda m: m.group(1).upper(), string)
 
 
 def flatten_key(k, parent_key, sep):

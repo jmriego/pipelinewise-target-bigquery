@@ -161,10 +161,6 @@ def is_unstructured_object(props):
     return 'object' in props['type'] and not props.get('properties')
 
 
-def camelize(string):
-    return re.sub(r"(?:^|_)(.)", lambda m: m.group(1).upper(), string)
-
-
 def primary_column_names(stream_schema_message):
     try:
         return [sql_utils.safe_column_name(p) for p in stream_schema_message['key_properties']]

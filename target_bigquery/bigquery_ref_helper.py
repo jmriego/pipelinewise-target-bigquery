@@ -1,3 +1,4 @@
+import re
 from google.cloud import bigquery
 
 from target_bigquery import stream_utils
@@ -9,9 +10,10 @@ class BigQueryRefHelper:
                  temp_schema_name: str = None):
         self.project_id = project_id
         self.schema_name = schema_name
-        self.temp_schema_name = temp_schema if temp_schema_name else schema_name
+        self.temp_schema_name = temp_schema_name if temp_schema_name else schema_name
 
-    def table_ref_from_stream(stream_name: str,
+    def table_ref_from_stream(self,
+                              stream_name: str,
                               is_temporary: bool = False) -> bigquery.TableReference:
         # get table id
         stream_dict = stream_utils.stream_name_to_dict(stream_name)
@@ -31,3 +33,4 @@ class BigQueryRefHelper:
             dataset_id = self.schema_name
 
         table_ref = bigquery.DatasetReference(project_id, dataset_id).table(table_id)
+        return table_ref

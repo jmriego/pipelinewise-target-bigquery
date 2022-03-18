@@ -2,7 +2,6 @@
 from typing import Dict, List
 
 from datetime import datetime
-import time
 from decimal import Decimal
 from dateutil import parser
 from dateutil.parser import ParserError
