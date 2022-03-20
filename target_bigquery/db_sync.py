@@ -394,14 +394,14 @@ class DbSync:
             # TODO: make temp table creation and DML atomic with merge
             query = sql_utils.merge_from_table_sql(temp_table,
                                                    target_table,
-                                                   self.column_names,
+                                                   self.column_names(),
                                                    self.renamed_columns,
                                                    pk_columns_names,
                                                    self.connection_config.get('use_partition_pruning', False))
         else:
             query = sql_utils.insert_from_table_sql(temp_table,
                                                     target_table,
-                                                    self.column_names)
+                                                    self.column_names())
         drop_temp_query = sql_utils.drop_table_sql(temp_table)
         results = self.query([query, drop_temp_query])
         logger.info('LOADED {} rows'.format(results.num_dml_affected_rows))

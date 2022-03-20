@@ -12,10 +12,8 @@ class BigQueryRefHelper:
         self.schema_name = schema_name
         self.temp_schema_name = temp_schema_name if temp_schema_name else schema_name
 
-    def table_ref_from_stream(self,
-                              stream_name: str,
-                              is_temporary: bool = False) -> bigquery.TableReference:
-        # get table id
+    @classmethod
+    def table_id_from_stream(cls, stream_name: str) -> str:
         stream_dict = stream_utils.stream_name_to_dict(stream_name)
         bad_table_name_chars = '[^a-zA-Z0-9]'
         table_id = re.sub(
@@ -23,6 +21,13 @@ class BigQueryRefHelper:
                        '_',
                        stream_dict['table_name']
                    ).lower()
+        return table_id
+
+    def table_ref_from_stream(self,
+                              stream_name: str,
+                              is_temporary: bool = False) -> bigquery.TableReference:
+        # get table id
+        table_id = self.table_id_from_stream(stream_name)
 
         project_id = self.project_id
         if is_temporary:

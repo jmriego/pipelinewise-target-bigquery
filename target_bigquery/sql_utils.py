@@ -8,8 +8,7 @@ def safe_column_name(name: str, quotes: bool = False) -> str:
     name = re.sub(pattern, '_', name)
     if quotes:
         return '`{}`'.format(name).lower()
-    else:
-        return '{}'.format(name).lower()
+    return '{}'.format(name).lower()
 
 
 def drop_table_sql(table: bigquery.Table) -> str:
@@ -79,6 +78,7 @@ def insert_from_table_sql(src: bigquery.Table,
     )
 
 
+#pylint: disable=too-many-arguments
 def merge_from_table_sql(src: bigquery.Table,
                          dest: bigquery.Table,
                          columns: List[str],
