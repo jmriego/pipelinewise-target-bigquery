@@ -358,14 +358,6 @@ class DbSync:
                     result[name] = None
             yield result
 
-    def check_partition_pruning_possible(self, table: bigquery.Table) -> bool:
-        pruning_possible = False
-        partitioning = sql_utils.get_table_partitioning(table)
-        if partitioning is not None and self.connection_config.get('use_partition_pruning', False):
-            query = sql_utils.check_partition_pruning_possible_sql(table)
-            pruning_possible = next(self.client.query(query).result())[0]
-        return pruning_possible
-
     def load_avro(self, f, count):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
@@ -395,8 +387,7 @@ class DbSync:
                                                    target_table,
                                                    self.column_names(),
                                                    self.renamed_columns,
-                                                   pk_columns_names,
-                                                   self.connection_config.get('use_partition_pruning', False))
+                                                   pk_columns_names)
         else:
             query = sql_utils.insert_from_table_sql(temp_table,
                                                     target_table,
