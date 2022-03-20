@@ -1,3 +1,10 @@
+1.3.0 (2021-12-20)
+-------------------
+- Add `hard_delete_mapping` for switching specific streams
+- Add `batch_wait_limit_seconds` config
+- Fix nested keys issue
+- bump multiple dependencies
+
 1.2.0 (2021-12-20)
 -------------------
 - Allow `REPEATED` fields of type `RECORD` to be created.
