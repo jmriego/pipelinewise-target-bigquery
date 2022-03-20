@@ -10,6 +10,11 @@ def safe_column_name(name: str, quotes: bool = False) -> str:
         return '`{}`'.format(name).lower()
     return '{}'.format(name).lower()
 
+def safe_table_ref(table_ref: bigquery.TableReference) -> str:
+    project_name = table_ref.project
+    dataset_name = table_ref.dataset_id
+    table_name = table_ref.table_id
+    return '`{}`.`{}`.`{}`'.format(project_name, dataset_name, table_name)
 
 def drop_table_sql(table: bigquery.Table) -> str:
     return f"DROP TABLE IF EXISTS `{table.dataset_id}.{table.table_id}`"

@@ -374,8 +374,6 @@ class DbSync:
         logger.info("Loading {} rows into '{}'".format(count, target_table_ref.table_id))
 
         temp_table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=True)
-        temp_table = self.client.get_table(temp_table_ref)
-
 
         logger.info("INSERTING INTO {} ({})".format(
             temp_table_ref.table_id,
@@ -388,6 +386,7 @@ class DbSync:
         job_config.write_disposition = 'WRITE_TRUNCATE'
         job = self.client.load_table_from_file(f, temp_table_ref, job_config=job_config)
         job.result()
+        temp_table = self.client.get_table(temp_table_ref)
 
         pk_columns_names = primary_column_names(self.stream_schema_message)
         if pk_columns_names:
@@ -453,7 +452,8 @@ class DbSync:
 
         table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
         table_id = table_ref.table_id
-        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table_id)
+        query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(
+                    sql_utils.safe_table_ref(table_ref))
         logger.info("Deleting rows from '{}' table... {}".format(table_id, query))
         logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
