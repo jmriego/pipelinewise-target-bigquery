@@ -3,7 +3,7 @@ from google.cloud import bigquery
 
 from target_bigquery import stream_utils
 
-class BigQueryRefHelper:
+class StreamRefHelper:
     def __init__(self,
                  project_id: str,
                  schema_name: str,

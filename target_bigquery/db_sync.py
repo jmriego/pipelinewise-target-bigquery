@@ -12,7 +12,7 @@ from google.cloud.exceptions import Conflict
 
 from target_bigquery import flattening
 from target_bigquery import stream_utils
-from target_bigquery.bigquery_ref_helper import BigQueryRefHelper
+from target_bigquery.stream_ref_helper import StreamRefHelper
 from target_bigquery import sql_utils
 
 logger = singer.get_logger()
@@ -258,7 +258,7 @@ class DbSync:
 
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
             self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
-            self.ref_helper = BigQueryRefHelper(
+            self.ref_helper = StreamRefHelper(
                                            self.connection_config['project_id'],
                                            self.schema_name,
                                            self.connection_config.get('temp_schema')
@@ -484,7 +484,8 @@ class DbSync:
             if sql_utils.safe_column_name(name, quotes=False) not in columns
         ]
 
-        self.add_columns(columns_to_add, stream)
+        if columns_to_add:
+            self.add_columns(columns_to_add, stream)
 
         columns_to_replace = [
             column_schema(name, properties_schema)
