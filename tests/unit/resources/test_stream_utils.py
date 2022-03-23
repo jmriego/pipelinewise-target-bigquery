@@ -27,8 +27,10 @@ class TestStreamUtils(unittest.TestCase):
 
         record = { "type": "RECORD", "stream": "foo", "record": {"id": "2"} }
 
+        dt = datetime.now()
         result = stream_utils.add_metadata_values_to_record(record)
         self.assertEqual(result.get("id"), "2")
+        self.assertGreaterEqual(result.get("_sdc_extracted_at"), dt)
 
         extra_attrs = ['_sdc_extracted_at', '_sdc_batched_at', '_sdc_deleted_at']
         for attr in extra_attrs:
