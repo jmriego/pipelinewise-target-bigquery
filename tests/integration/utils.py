@@ -2,6 +2,15 @@ import os
 import json
 import unittest
 
+import target_bigquery
+from target_bigquery.db_sync import DbSync
+
+METADATA_COLUMNS = [
+    '_sdc_extracted_at',
+    '_sdc_batched_at',
+    '_sdc_deleted_at'
+]
+
 
 def get_db_config():
     config = {}
