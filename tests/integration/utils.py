@@ -49,7 +49,7 @@ class TestIntegration(unittest.TestCase):
     maxDiff = None
 
     def setUp(self):
-        self.config = test_utils.get_test_config()
+        self.config = get_test_config()
         bigquery = DbSync(self.config)
 
         # Drop target schema
