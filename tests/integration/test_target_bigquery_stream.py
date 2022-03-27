@@ -13,13 +13,6 @@ try:
 except ImportError:
     import utils as test_utils
 
-METADATA_COLUMNS = [
-    '_sdc_extracted_at',
-    '_sdc_batched_at',
-    '_sdc_deleted_at'
-]
-
-
 def query(bigquery, query):
     result = bigquery.query(query)
     return [dict(row.items()) for row in result]
