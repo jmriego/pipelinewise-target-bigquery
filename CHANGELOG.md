@@ -1,4 +1,8 @@
-1.3.0 (2021-12-20)
+1.3.1 (2023-03-28)
+-------------------
+- Fix for taps not sending the `time_extracted` field
+
+1.3.0 (2023-03-20)
 -------------------
 - Add `hard_delete_mapping` for switching specific streams
 - Add `batch_wait_limit_seconds` config
