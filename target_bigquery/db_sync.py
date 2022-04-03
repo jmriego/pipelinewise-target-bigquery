@@ -497,6 +497,22 @@ class DbSync:
         for field in columns_to_replace:
             self.version_column(field, stream)
 
+    def update_clustering_fields(self):
+        stream_schema_message = self.stream_schema_message
+        stream = stream_schema_message['stream']
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
+        table = self.client.get_table(table_ref)  # API request
+
+        new_clustering_fields = [
+            self.renamed_columns.get(c, c) for c in primary_column_names(self.stream_schema_message)
+        ]
+        if not table.clustering_fields:
+            logger.info('Clustering table on fields: {}'.format(new_clustering_fields))
+            table.clustering_fields = new_clustering_fields
+            self.client.update_table(table, ['clustering_fields'])
+        # avoid changing existing clusters so its possible to manually change clustering of a table outside of this target
+        elif table.clustering_fields != new_clustering_fields:
+            logger.info('Primary key fields have changed. Uncluster the table to allow the change: {}'.format(new_clustering_fields))
 
     def version_column(self, field, stream):
         column = sql_utils.safe_column_name(field.name, quotes=False)
@@ -568,3 +584,4 @@ class DbSync:
         except Conflict:
             logger.info("Table '{}' exists".format(table_name_with_schema))
             self.update_columns()
+        self.update_clustering_fields()
