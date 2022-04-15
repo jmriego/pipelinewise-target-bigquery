@@ -131,7 +131,7 @@ def column_schema_avro(name, schema_property):
     elif property_format == 'date-time':
         result_type = {
             'type': 'long',
-            'logicalType': 'timestamp-millis'}
+            'logicalType': 'timestamp-micros'}
     elif property_format == 'time':
         result_type = {
             'type': 'int',
