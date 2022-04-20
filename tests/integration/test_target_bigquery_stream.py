@@ -564,7 +564,7 @@ class TestIntegrationSchema(test_utils.TestIntegration):
         # ----------------------------------------------------------------------
         # Check rows in table_two
         # ----------------------------------------------------------------------
-        delete_time = datetime.datetime(2019, 10, 13, 14, 6, 31, 838000, tzinfo=timezone.utc)
+        delete_time = datetime.datetime(2019, 10, 13, 14, 6, 31, 838328, tzinfo=timezone.utc)
         expected_table_two = [
             {'cid': 1, 'cvarchar': "updated row", "_sdc_deleted_at": None},
             {'cid': 2, 'cvarchar': 'updated row', "_sdc_deleted_at": None},
