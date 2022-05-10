@@ -14,8 +14,9 @@ from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField
 from google.cloud.exceptions import Conflict
 
+from google.api_core.retry import if_exception_type, Retry
+
 from google.api_core.future import polling
-from google.cloud import bigquery
 from google.cloud.bigquery import retry as bq_retry
 
 logger = singer.get_logger()
@@ -358,7 +359,9 @@ class DbSync:
             self.flatten_schema = flatten_schema(stream_schema_message['schema'], max_level=self.data_flattening_max_level)
             self.renamed_columns = {}
 
-    def query(self, query, params=[]):
+    # 1. Retry at the Google API level (Retry deadline = 30 seconds)
+    @Retry(predicate=if_exception_type(Exception), deadline=30)
+    def query(self, query, params=[]) -> bigquery.job.query.QueryJob:
         def to_query_parameter(value):
             if isinstance(value, int):
                 value_type = "INT64"
@@ -381,6 +384,8 @@ class DbSync:
             queries = [query]
 
         logger.info("TARGET_BIGQUERY - Running query: {}".format(query))
+
+        # 2. Retry at the Bigquery API level
         query_job = self.client.query(';\n'.join(queries), job_config=job_config, retry=bq_retry.DEFAULT_RETRY)
         query_job._retry = polling.DEFAULT_RETRY
         query_job.result()
