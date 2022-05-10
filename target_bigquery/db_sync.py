@@ -14,6 +14,9 @@ from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField
 from google.cloud.exceptions import Conflict
 
+from google.api_core.future import polling
+from google.cloud import bigquery
+from google.cloud.bigquery import retry as bq_retry
 
 logger = singer.get_logger()
 
@@ -378,7 +381,8 @@ class DbSync:
             queries = [query]
 
         logger.info("TARGET_BIGQUERY - Running query: {}".format(query))
-        query_job = self.client.query(';\n'.join(queries), job_config=job_config)
+        query_job = self.client.query(';\n'.join(queries), job_config=job_config, retry=bq_retry.DEFAULT_RETRY)
+        query_job._retry = polling.DEFAULT_RETRY
         query_job.result()
 
         return query_job
