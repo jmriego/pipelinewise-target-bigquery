@@ -50,7 +50,7 @@ def bigquery_type(property_type, property_format):
     #
     # TODO: Detect if timezone postfix exists in the JSON and find if DATETIME or
     # TIMESTAMP which includes time zone is the better column type
-    if property_format == 'date-time':
+    if property_format in ['date', 'date-time']:
         return 'timestamp'
     elif property_format == 'time':
         return 'time'
@@ -128,7 +128,7 @@ def column_schema_avro(name, schema_property):
         else:
             result_type = 'string'
 
-    elif property_format == 'date-time':
+    elif property_format in ['date', 'date-time']:
         result_type = {
             'type': 'long',
             'logicalType': 'timestamp-micros'}
