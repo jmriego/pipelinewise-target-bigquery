@@ -54,6 +54,8 @@ def adjust_timestamps_in_record(record: Dict, schema: Dict) -> None:
         try:
             if _format == 'time':
                 record[key] = parser.parse(record[key]).time()
+            elif _format == 'date':
+                record[key] = parser.parse(record[key]).date()
             else:
                 record[key] = parser.parse(record[key])
         except ParserError:

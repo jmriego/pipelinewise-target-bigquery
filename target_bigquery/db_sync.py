@@ -44,14 +44,16 @@ def validate_config(config):
     return errors
 
 
-# pylint: disable=no-else-return,too-many-return-statements
+# pylint: disable=no-else-return,too-many-branches,too-many-return-statements
 def bigquery_type(property_type, property_format):
     # Every date-time JSON value is currently mapped to TIMESTAMP WITHOUT TIME ZONE
     #
     # TODO: Detect if timezone postfix exists in the JSON and find if DATETIME or
     # TIMESTAMP which includes time zone is the better column type
-    if property_format in ['date', 'date-time']:
+    if property_format == 'date-time':
         return 'timestamp'
+    if property_format == 'date':
+        return 'date'
     elif property_format == 'time':
         return 'time'
     elif 'number' in property_type:
@@ -128,10 +130,14 @@ def column_schema_avro(name, schema_property):
         else:
             result_type = 'string'
 
-    elif property_format in ['date', 'date-time']:
+    elif property_format == 'date-time':
         result_type = {
             'type': 'long',
             'logicalType': 'timestamp-micros'}
+    elif property_format == 'date':
+        result_type = {
+            'type': 'int',
+            'logicalType': 'date'}
     elif property_format == 'time':
         result_type = {
             'type': 'int',
@@ -518,6 +524,7 @@ class DbSync:
         column = sql_utils.safe_column_name(field.name, quotes=False)
         col_type_suffixes = {
             'timestamp': 'ti',
+            'date': 'dy',
             'time': 'tm',
             'numeric': 'de',
             'string': 'st',
