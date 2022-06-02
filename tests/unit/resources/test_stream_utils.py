@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from dateutil import parser
 
 from target_bigquery import stream_utils
 
@@ -16,7 +17,7 @@ class TestStreamUtils(unittest.TestCase):
         result = stream_utils.add_metadata_values_to_record(record)
 
         self.assertEqual(result.get("id"), "2")
-        self.assertEqual(result.get("_sdc_extracted_at"), datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ'))
+        self.assertEqual(result.get("_sdc_extracted_at"), parser.parse(dt))
 
         extra_attrs = ['_sdc_batched_at', '_sdc_deleted_at']
         for attr in extra_attrs:
