@@ -96,10 +96,7 @@ def add_metadata_values_to_record(record_message):
             if isinstance(dt, date):
                 return dt
 
-            if 'Z' in dt:
-                return datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S.%fZ')
-
-            return datetime.fromisoformat('+'.join(dt.split('+')[:1]))
+            return parser.parse(dt)
         except TypeError:
             return None
 
