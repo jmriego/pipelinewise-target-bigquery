@@ -2,7 +2,7 @@ import unittest
 import os
 import itertools
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from unittest.mock import patch
 
 import target_bigquery
@@ -75,7 +75,7 @@ class TestTargetBigQuery(unittest.TestCase):
 
         self.assertDictEqual({
             'key1': '1',
-            'key2':  datetime(2030, 1, 22, 0, 0),
+            'key2': date(2030, 1, 22),
             'key3': datetime(9999, 12, 31, 23, 59, 59, 999999),
             'key4': timedelta(693595, 86399, 999999),
             'key5': 'I\'m good',

@@ -97,7 +97,7 @@ class TestDBSync(unittest.TestCase):
         # Mapping from JSON schema types ot BigQuery column types
         self.assertEqual(mapper(json_str), ('string', 'NULLABLE'))
         self.assertEqual(mapper(json_str_or_null), ('string', 'NULLABLE'))
-        self.assertEqual(mapper(json_date), ('timestamp', 'NULLABLE'))
+        self.assertEqual(mapper(json_date), ('date', 'NULLABLE'))
         self.assertEqual(mapper(json_dt), ('timestamp', 'NULLABLE'))
         self.assertEqual(mapper(json_dt_or_null), ('timestamp', 'NULLABLE'))
         self.assertEqual(mapper(json_t), ('time', 'NULLABLE'))
