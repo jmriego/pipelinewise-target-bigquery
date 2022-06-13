@@ -512,7 +512,7 @@ class DbSync:
         new_clustering_fields = [
             self.renamed_columns.get(c, c) for c in primary_column_names(self.stream_schema_message)
         ]
-        if not table.clustering_fields:
+        if new_clustering_fields and not table.clustering_fields:
             logger.info('Clustering table on fields: {}'.format(new_clustering_fields))
             table.clustering_fields = new_clustering_fields
             self.client.update_table(table, ['clustering_fields'])
