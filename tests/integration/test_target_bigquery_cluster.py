@@ -22,6 +22,18 @@ class TestIntegrationSchema(test_utils.TestIntegration):
     """
     Integration Tests about clustering
     """
+    def test_table_with_no_pk(self):
+        """Tests table with a primary key gets clustered on those fields"""
+        tap_lines = test_utils.get_test_tap_lines('table_with_no_pk.json')
+        self.config['primary_key_required'] = False
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        table = query(bigquery, "SELECT * FROM {}.test_table_no_pk ORDER BY c_id".format(target_schema))
+        self.assertEqual(len(table), 2)
+
     def test_table_with_pk_adds_clustering(self):
         """Tests table with a primary key gets clustered on those fields"""
         tap_lines = test_utils.get_test_tap_lines('table_with_pk_cluster.json')
