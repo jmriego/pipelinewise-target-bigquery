@@ -257,6 +257,26 @@ class TestIntegrationSchema(test_utils.TestIntegration):
             should_hard_deleted_rows=True
         )
 
+    def test_loading_version_hard_delete(self):
+        """Loading unicode encoded characters"""
+        tap_lines = test_utils.get_test_tap_lines('table_with_multiple_version.json')
+
+        # Turning on hard delete mode
+        self.config['hard_delete'] = True
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        table = query(bigquery, "SELECT * FROM {}.test_table_versions ORDER BY c_pk".format(target_schema))
+
+        expected_table = [
+            {'c_pk': 3, 'c_int': 3, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 15, 2, 0, 0, tzinfo=timezone.utc)}
+        ]
+
+        self.assertEqual(self.remove_metadata_columns_from_rows(table), expected_table)
+
+
     def test_loading_with_multiple_schema(self):
         """Loading table with multiple SCHEMA messages"""
         tap_lines = test_utils.get_test_tap_lines('messages-with-multi-schemas.json')

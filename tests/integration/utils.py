@@ -8,7 +8,8 @@ from target_bigquery.db_sync import DbSync
 METADATA_COLUMNS = [
     '_sdc_extracted_at',
     '_sdc_batched_at',
-    '_sdc_deleted_at'
+    '_sdc_deleted_at',
+    '_sdc_table_version'
 ]
 
 
