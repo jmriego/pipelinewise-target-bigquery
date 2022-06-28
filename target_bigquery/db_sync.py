@@ -454,6 +454,19 @@ class DbSync:
         logger.info("Deleting rows from '{}' table... {}".format(table_id, query))
         logger.info("DELETE {}".format(self.query(query).result().total_rows))
 
+    def activate_table_version(self, stream, version):
+        stream_schema_message = self.stream_schema_message
+        stream = stream_schema_message['stream']
+
+        table_ref = self.ref_helper.table_ref_from_stream(stream, is_temporary=False)
+        table_id = table_ref.table_id
+
+        query = "DELETE FROM {} WHERE _sdc_table_version != {}".format(
+                    sql_utils.safe_table_ref(table_ref),
+                    version)
+        logger.info("Removing rows from previous versions from '{}' table... {}".format(table_id, query))
+        logger.info("DELETE {}".format(self.query(query).result().total_rows))
+
     def create_schema_if_not_exists(self):
         schema_name = self.schema_name
         temp_schema = self.connection_config.get('temp_schema', self.schema_name)
