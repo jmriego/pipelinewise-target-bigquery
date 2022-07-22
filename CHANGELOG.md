@@ -1,3 +1,11 @@
+1.4.0 (2022-07-22)
+-------------------
+- Refactoring code to make it easier to add improvements
+- Support for microseconds
+- Fixes for date fields
+- Support for ACTIVATE_VERSION
+- Fixes for clustering when to Primary Key present
+
 1.3.1 (2022-03-28)
 -------------------
 - Fix for taps not sending the `time_extracted` field
