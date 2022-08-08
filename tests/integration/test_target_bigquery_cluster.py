@@ -1,11 +1,6 @@
 import datetime
-import json
-import os
-import unittest.mock as mock
 from datetime import timezone
-from decimal import Decimal, getcontext
 
-import target_bigquery
 from target_bigquery.db_sync import DbSync, PRECISION
 
 try:
@@ -46,7 +41,7 @@ class TestIntegrationSchema(test_utils.TestIntegration):
         cluster_columns = query(bigquery, "SELECT clustering_ordinal_position, column_name FROM {}.INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'test_table_cluster' AND clustering_ordinal_position > 0 ORDER BY 1".format(target_schema))
 
         # ----------------------------------------------------------------------
-        # Check rows in table
+        # Check that rows in the stream are present
         # ----------------------------------------------------------------------
         expected_table = [
             {'c_pk': 2, 'c_int': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 12, 2, 0, 0, tzinfo=timezone.utc)},
@@ -61,7 +56,7 @@ class TestIntegrationSchema(test_utils.TestIntegration):
         self.assertEqual(cluster_columns, expected_cluster_columns)
 
         # ----------------------------------------------------------------------
-        # Change the primary key and check if clustering stayed unchanged
+        # Change the primary key and expect that clustering stays unchanged
         # ----------------------------------------------------------------------
         tap_lines = test_utils.get_test_tap_lines('table_with_pk_cluster_changed.json')
         self.persist_lines(tap_lines)
@@ -77,8 +72,54 @@ class TestIntegrationSchema(test_utils.TestIntegration):
         self.assertEqual(self.remove_metadata_columns_from_rows(table_changed), expected_table_changed)
         self.assertEqual(cluster_columns_changed, expected_cluster_columns)
 
+
+    def test_table_with_pk_limits_clustering_keys(self):
+        """Tests table with a primary key gets clustered on those fields, up to the
+        maximum number of clustering keys allowed by bigquery"""
+
+        tap_lines = test_utils.get_test_tap_lines('table_with_multi_pk_cluster_beyond_limit.json')
+        self.persist_lines(tap_lines)
+
+        # Get loaded rows from tables
+        bigquery = DbSync(self.config)
+        target_schema = self.config.get('default_target_schema', '')
+        table = query(bigquery, "SELECT * FROM {}.test_table_cluster_multi ORDER BY c_pk".format(target_schema))
+        cluster_columns = query(bigquery, "SELECT clustering_ordinal_position, column_name FROM {}.INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'test_table_cluster_multi' AND clustering_ordinal_position > 0 ORDER BY 1".format(target_schema))
+
+        # ----------------------------------------------------------------------
+        # Check that rows in the stream are present and clustered on the first 4 keys
+        # ----------------------------------------------------------------------
+        expected_table = [
+            {'c_pk': 2, 'c_int': 2, 'c_int_2': 22, 'c_int_3': 222, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 12, 2, 0, 0, tzinfo=timezone.utc)},
+            {'c_pk': 3, 'c_int': 3, 'c_int_2': 33, 'c_int_3': 333, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 15, 2, 0, 0, tzinfo=timezone.utc)}
+        ]
+
+        expected_cluster_columns = [
+            {'clustering_ordinal_position': 1, 'column_name': 'c_pk'},
+            {'clustering_ordinal_position': 2, 'column_name': 'c_varchar'},
+            {'clustering_ordinal_position': 3, 'column_name': 'c_int'},
+            {'clustering_ordinal_position': 4, 'column_name': 'c_int_2'},
+        ]
+
+        self.assertEqual(self.remove_metadata_columns_from_rows(table), expected_table)
+        self.assertEqual(cluster_columns, expected_cluster_columns)
+
+        # ----------------------------------------------------------------------
+        # Change the primary key and expect that clustering stays unchanged
+        # ----------------------------------------------------------------------
+
+        tap_lines = test_utils.get_test_tap_lines('table_with_multi_pk_cluster_changed.json')
+        self.persist_lines(tap_lines)
+
+        table_changed = query(bigquery, "SELECT * FROM {}.test_table_cluster_multi ORDER BY c_pk".format(target_schema))
+        cluster_columns_changed = query(bigquery, "SELECT clustering_ordinal_position, column_name FROM {}.INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'test_table_cluster_multi' AND clustering_ordinal_position > 0 ORDER BY 1".format(target_schema))
+
+        self.assertEqual(self.remove_metadata_columns_from_rows(table_changed), expected_table)
+        self.assertEqual(cluster_columns_changed, expected_cluster_columns)
+
+
     def test_table_with_pk_multi_column_removed(self):
-        """Test table with a pk with multiple columns gets clustered by those and removing the pk doesnt cause errors"""
+        """Test table with a pk with multiple columns gets clustered by those and removing the pk doesn't cause errors"""
         tap_lines = test_utils.get_test_tap_lines('table_with_multi_pk_cluster.json')
         self.persist_lines(tap_lines)
 
@@ -89,7 +130,7 @@ class TestIntegrationSchema(test_utils.TestIntegration):
         cluster_columns = query(bigquery, "SELECT clustering_ordinal_position, column_name FROM {}.INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'test_table_cluster_multi' AND clustering_ordinal_position > 0 ORDER BY 1".format(target_schema))
 
         # ----------------------------------------------------------------------
-        # Check rows in table
+        # Check that rows in the stream are present and clustered on the primary keys
         # ----------------------------------------------------------------------
         expected_table = [
             {'c_pk': 2, 'c_int': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 12, 2, 0, 0, tzinfo=timezone.utc)},
@@ -105,10 +146,10 @@ class TestIntegrationSchema(test_utils.TestIntegration):
         self.assertEqual(cluster_columns, expected_cluster_columns)
 
         # ----------------------------------------------------------------------
-        # Remove the primary key and check if clustering stayed unchanged
+        # Remove the primary key and expect that clustering stays unchanged
         # ----------------------------------------------------------------------
         self.config['primary_key_required'] = False
-        tap_lines = test_utils.get_test_tap_lines('table_with_multi_pk_cluster_changed.json')
+        tap_lines = test_utils.get_test_tap_lines('table_with_multi_pk_cluster_changed_pk_removed.json')
         self.persist_lines(tap_lines)
 
         table_changed = query(bigquery, "SELECT * FROM {}.test_table_cluster_multi ORDER BY c_pk".format(target_schema))
@@ -119,8 +160,6 @@ class TestIntegrationSchema(test_utils.TestIntegration):
             {'c_pk': 2, 'c_int': 2, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 12, 2, 0, 0, tzinfo=timezone.utc)},
             {'c_pk': 3, 'c_int': 3, 'c_varchar': '2', 'c_date': datetime.datetime(2019, 2, 15, 2, 0, 0, tzinfo=timezone.utc)}
         ]
-
-        expected_cluster_columns_changed = []
 
         self.assertEqual(self.remove_metadata_columns_from_rows(table_changed), expected_table_changed)
         self.assertEqual(cluster_columns_changed, expected_cluster_columns)

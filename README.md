@@ -114,6 +114,18 @@ data only after the change.
   you need to resync the table.
 
 
+#### Column clustering
+
+This target tries to speed up the querying of the resulting tables by clustering the
+columns in each table by the primary key of the stream.
+
+The choice and ordering of the clustering keys are defined in the same order as the
+`key_properties` columns in the stream's `SCHEMA` messages.
+
+Bigquery places a limit on the number of clustering keys (4 as of 2022-08-02), so if the
+number of clustering keys is greater than 4, this target will simply use the first 4
+columns defined in `key_properties` property.
+
 ### To run tests:
 
 1. Define environment variables that requires running the tests

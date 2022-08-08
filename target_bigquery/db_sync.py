@@ -17,6 +17,7 @@ from target_bigquery import sql_utils
 
 logger = singer.get_logger()
 
+BIGQUERY_NUM_CLUSTERED_COLUMNS_LIMIT = 4
 PRECISION = 38
 SCALE = 9
 getcontext().prec = PRECISION
@@ -525,13 +526,20 @@ class DbSync:
         new_clustering_fields = [
             self.renamed_columns.get(c, c) for c in primary_column_names(self.stream_schema_message)
         ]
-        if new_clustering_fields and not table.clustering_fields:
-            logger.info('Clustering table on fields: {}'.format(new_clustering_fields))
-            table.clustering_fields = new_clustering_fields
+
+        new_clustering_fields_limited = new_clustering_fields[0:BIGQUERY_NUM_CLUSTERED_COLUMNS_LIMIT]
+
+        if len(new_clustering_fields) > BIGQUERY_NUM_CLUSTERED_COLUMNS_LIMIT:
+            logger.info(f"The number of clustering fields ({len(new_clustering_fields)}) is greater than the limit of {BIGQUERY_NUM_CLUSTERED_COLUMNS_LIMIT} allowed by BigQuery. Using only the first {BIGQUERY_NUM_CLUSTERED_COLUMNS_LIMIT} columns to define clustering keys as ordered by the stream schema's 'key_properties' property.")
+
+        if new_clustering_fields_limited and not table.clustering_fields:
+            logger.info('Clustering table on fields: {}'.format(new_clustering_fields_limited))
+            table.clustering_fields = new_clustering_fields_limited
             self.client.update_table(table, ['clustering_fields'])
+
         # avoid changing existing clusters so its possible to manually change clustering of a table outside of this target
-        elif table.clustering_fields != new_clustering_fields:
-            logger.info('Primary key fields have changed. Uncluster the table to allow the change: {}'.format(new_clustering_fields))
+        elif table.clustering_fields != new_clustering_fields_limited:
+            logger.info('Primary key fields have changed. Uncluster the table to allow the change: {}'.format(new_clustering_fields_limited))
 
     def version_column(self, field, stream):
         column = sql_utils.safe_column_name(field.name, quotes=False)

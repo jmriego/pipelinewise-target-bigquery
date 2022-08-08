@@ -1,3 +1,7 @@
+1.4.1 (2022-08-02)
+-------------------
+- Fix: Instead of failing, use only the first 4 primary keys when clustering if more than 5 primary keys are defined by the tap stream's schema.
+
 1.4.0 (2022-07-22)
 -------------------
 - Refactoring code to make it easier to add improvements
