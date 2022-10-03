@@ -26,7 +26,7 @@ setup(name="pipelinewise-target-bigquery",
           "test": [
               'pytest==7.0.1',
               'pylint==2.13.4',
-              'pytest-cov==3.0.0',
+              'pytest-cov==4.0.0',
           ]
       },
       entry_points="""
