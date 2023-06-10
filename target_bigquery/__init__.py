@@ -343,7 +343,7 @@ def flush_streams(
             records_to_load=streams[streams_to_flush[0]],
             row_count=row_count,
             db_sync=stream_to_sync[streams_to_flush[0]],
-            delete_rows=hard_delete_mapping.get(streams_to_flush[0], default_hard_delete) and not 
+            delete_rows=hard_delete_mapping.get(streams_to_flush[0], default_hard_delete) and not default_append_only
         )
 
     # reset flushed stream records to empty to avoid flushing same records
