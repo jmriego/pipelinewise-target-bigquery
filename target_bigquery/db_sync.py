@@ -388,7 +388,7 @@ class DbSync:
         temp_table = self.client.get_table(temp_table_ref)
 
         pk_columns_names = primary_column_names(self.stream_schema_message)
-        if pk_columns_names:
+        if pk_columns_names and not self.connection_config.get('append_only', False):
             # TODO: make temp table creation and DML atomic with merge
             query = sql_utils.merge_from_table_sql(temp_table,
                                                    target_table,

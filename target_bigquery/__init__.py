@@ -29,7 +29,7 @@ DEFAULT_BATCH_SIZE_ROWS = 100000
 DEFAULT_PARALLELISM = 0  # 0 The number of threads used to flush tables
 DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by default when flushing streams in parallel
 DEFAULT_HARD_DELETE = False
-
+DEFAULT_APPEND_ONLY = False
 
 
 def add_metadata_columns_to_schema(schema_message):
@@ -208,7 +208,7 @@ def persist_lines(config, lines) -> None:
             #  1) Set ` 'primary_key_required': false ` in the target-bigquery config.json
             #  or
             #  2) Use fastsync [postgres-to-bigquery, mysql-to-bigquery, etc.]
-            if config.get('primary_key_required', True) and len(o['key_properties']) == 0:
+            if config.get('primary_key_required', True) and not config.get('append_only', False) and len(o['key_properties']) == 0:
                 LOGGER.critical("Primary key is set to mandatory but not defined in the [{}] stream".format(stream))
                 raise Exception("key_properties field is required")
 
@@ -293,6 +293,7 @@ def flush_streams(
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
     default_hard_delete = config.get("hard_delete", DEFAULT_HARD_DELETE)
+    default_append_only = config.get("append_only", DEFAULT_APPEND_ONLY)
     hard_delete_mapping = config.get("hard_delete_mapping", {})
 
     # Parallelism 0 means auto parallelism:
@@ -342,7 +343,7 @@ def flush_streams(
             records_to_load=streams[streams_to_flush[0]],
             row_count=row_count,
             db_sync=stream_to_sync[streams_to_flush[0]],
-            delete_rows=hard_delete_mapping.get(streams_to_flush[0], default_hard_delete)
+            delete_rows=hard_delete_mapping.get(streams_to_flush[0], default_hard_delete) and not default_append_only
         )
 
     # reset flushed stream records to empty to avoid flushing same records
