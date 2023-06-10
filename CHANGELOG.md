@@ -1,3 +1,7 @@
+1.5.0 (2023-06-10)
+-------------------
+- Added a new append_only config to allow for only inserting new rows and not updating existing data
+
 1.4.1 (2022-08-02)
 -------------------
 - Fix: Instead of failing, use only the first 4 primary keys when clustering if more than 5 primary keys are defined by the tap stream's schema.
