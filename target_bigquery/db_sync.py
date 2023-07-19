@@ -343,8 +343,9 @@ class DbSync:
                         result[name] = json.dumps(flatten[name])
                     # dump to string if array without items or recursive
                     elif ('array' in props['type'] and
-                          (not 'items' in props
-                           or '$ref' in props['items'])):
+                          ('items' not in props
+                           or '$ref' in props['items']
+                           or 'type' not in props['items'])):
                         result[name] = json.dumps(flatten[name])
                     # dump array elements to strings
                     elif (
